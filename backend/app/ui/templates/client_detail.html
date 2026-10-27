@@ -4,49 +4,182 @@
 
 {% block content %}
 <div style="margin-bottom: 1.5rem;">
-    <a href="/ui/clients" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;">&larr; Back to Clients</a>
-    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 0.5rem;">
+    <a href="/ui/clients" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem; font-weight: 500;">
+        &larr; Back to Clients & Portfolios
+    </a>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 0.6rem; flex-wrap: wrap; gap: 1rem;">
         <div>
-            <h1>{{ client.display_name }} <span style="color: var(--primary); font-size: 1.1rem; font-family: var(--font-mono);">[{{ client.code }}]</span></h1>
-            <p style="color: var(--text-muted);">Base Currency: <strong>{{ client.base_currency }}</strong> &bull; As of: {{ positions.as_of }}</p>
+            <h1>{{ client.display_name }} <span style="color: var(--primary); font-size: 1.15rem; font-family: var(--font-mono); font-weight: 700;">[{{ client.code }}]</span></h1>
+            <p style="color: var(--text-muted); font-size: 0.92rem; margin-top: 0.2rem;">
+                Base CCY: <strong>{{ client.base_currency }}</strong> &bull; Valuation As of: <strong>{{ positions.as_of }}</strong> &bull; Accounts: <strong>{{ client_accounts|length }}</strong>
+            </p>
         </div>
-        <div style="display: flex; gap: 0.5rem;">
-            <a href="/ui/mandates" class="btn btn-outline btn-sm">Mandate & Drift</a>
-            <a href="/ui/rebalance" class="btn btn-sm">Plan Rebalance</a>
+        <div style="display: flex; gap: 0.6rem;">
+            <a href="/ui/mandates" class="btn btn-outline btn-sm">🎯 Mandates & Drift</a>
+            <a href="/ui/rebalance" class="btn btn-sm">⚖️ Plan Rebalance</a>
         </div>
     </div>
 </div>
 
-<div class="grid-3" style="margin-bottom: 2rem;">
-    <div class="stat-card">
+<div class="grid-4" style="margin-bottom: 2rem;">
+    <div class="stat-card accent-indigo">
         <div class="stat-label">Total Portfolio Value</div>
-        <div class="stat-val" style="color: var(--primary);">{{ positions.total_value }} {{ client.base_currency }}</div>
-        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Invested: {{ positions.invested_value }}</div>
+        <div class="stat-val" style="color: var(--primary);">{{ positions.total_value }} <span style="font-size: 1rem; color: var(--text-muted);">{{ client.base_currency }}</span></div>
+        <div class="stat-sub">Invested: {{ positions.invested_value }} {{ client.base_currency }}</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card accent-emerald">
         <div class="stat-label">Available Free Cash</div>
-        <div class="stat-val">{{ positions.cash }} {{ client.base_currency }}</div>
-        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Account: {{ positions.account_code }}</div>
+        <div class="stat-val" style="color: var(--success);">{{ positions.cash }} <span style="font-size: 1rem; color: var(--text-muted);">{{ client.base_currency }}</span></div>
+        <div class="stat-sub">Settled liquid balance</div>
     </div>
-    <div class="stat-card">
+    <div class="stat-card {% if perf and perf.twr|float >= 0 %}accent-emerald{% else %}accent-danger{% endif %}">
         <div class="stat-label">Time-Weighted Return (TWR)</div>
         <div class="stat-val" style="color: {% if perf and perf.twr|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-            {% if perf %}{{ "%.2f"|format(perf.twr|float * 100) }}%{% else %}N/A{% endif %}
+            {% if perf %}{{ "%+.2f"|format(perf.twr|float * 100) }}%{% else %}0.00%{% endif %}
         </div>
-        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">
-            {% if perf %}Annualized: {{ "%.2f"|format(perf.annualized|float * 100) }}% &bull; Max DD: {{ "%.2f"|format(perf.max_drawdown|float * 100) }}%{% else %}No return history{% endif %}
+        <div class="stat-sub">
+            {% if perf %}Annualized: {{ "%.2f"|format(perf.annualized|float * 100) }}%{% else %}Inception period{% endif %}
         </div>
+    </div>
+    <div class="stat-card accent-amber">
+        <div class="stat-label">Max Drawdown</div>
+        <div class="stat-val" style="color: var(--warning);">
+            {% if perf %}{{ "%.2f"|format(perf.max_drawdown|float * 100) }}%{% else %}0.00%{% endif %}
+        </div>
+        <div class="stat-sub">Peak-to-trough decline</div>
     </div>
 </div>
 
-<div class="card">
+<!-- Client Accounts & Quick Cash Actions -->
+<div class="card" style="margin-bottom: 2rem;">
     <div class="card-header">
-        <h2>Active Holdings & Positions (Rebuilt from Transactions)</h2>
+        <div>
+            <h2>💼 Client Accounts & Portfolios ({{ client_accounts|length }})</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">Segregated accounts associated with this client entity</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <details style="position: relative;">
+                <summary class="btn btn-outline btn-sm">➕ Add New Portfolio</summary>
+                <div style="position: absolute; right: 0; top: 120%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 340px; z-index: 30; box-shadow: var(--card-shadow-lg);">
+                    <h3 style="margin-bottom: 0.75rem;">New Portfolio for {{ client.code }}</h3>
+                    <form method="POST" action="/ui/actions/account">
+                        <input type="hidden" name="client_id" value="{{ client.id }}">
+                        <input type="hidden" name="redirect_to" value="/ui/client/{{ client.id }}">
+                        <div class="form-group">
+                            <label>Account Code</label>
+                            <input type="text" name="account_code" required placeholder="e.g. ACC-{{ client.code }}-2">
+                        </div>
+                        <div class="form-group">
+                            <label>Currency</label>
+                            <select name="currency">
+                                <option value="AED">AED - UAE Dirham</option>
+                                <option value="SAR">SAR - Saudi Riyal</option>
+                                <option value="USD" selected>USD - US Dollar</option>
+                                <option value="EUR">EUR - Euro</option>
+                                <option value="GBP">GBP - British Pound</option>
+                                <option value="KWD">KWD - Kuwaiti Dinar</option>
+                            </select>
+                        </div>
+                        <div class="form-group">
+                            <label>Opening Cash</label>
+                            <input type="number" step="any" min="0" name="opening_cash" value="0.00">
+                        </div>
+                        <div class="form-group">
+                            <label>Strategy / Mandate Name</label>
+                            <input type="text" name="mandate_name" placeholder="e.g. {{ client.code }} Growth Strategy">
+                        </div>
+                        <button type="submit" class="btn btn-sm btn-success" style="width: 100%;">Create Portfolio</button>
+                    </form>
+                </div>
+            </details>
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Account Code</th>
+                <th>Strategy / Mandate</th>
+                <th>Currency</th>
+                <th class="num">Opening Cash</th>
+                <th class="num">Current Cash</th>
+                <th class="num">Portfolio Value</th>
+                <th class="num">Positions</th>
+                <th style="text-align: right;">Cash Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in client_accounts %}
+            <tr>
+                <td><strong>{{ a.account_code }}</strong></td>
+                <td>
+                    {% if a.mandate_id %}
+                    <a href="/ui/mandate/{{ a.mandate_id }}/drift" style="color: var(--primary); text-decoration: none; font-weight: 500;">
+                        🎯 {{ a.mandate_name }}
+                    </a>
+                    {% else %}
+                    <span style="color: var(--text-muted);">-</span>
+                    {% endif %}
+                </td>
+                <td><span class="tag tag-info">{{ a.currency }}</span></td>
+                <td class="num">{{ a.opening_cash }}</td>
+                <td class="num" style="color: var(--success); font-weight: 600;">{{ a.current_cash }}</td>
+                <td class="num" style="font-weight: 700; color: var(--primary);">{{ a.total_value }}</td>
+                <td class="num">{{ a.positions_count }}</td>
+                <td style="text-align: right;">
+                    <details style="position: relative; display: inline-block; text-align: left;">
+                        <summary class="btn btn-outline btn-sm">💵 Cash In/Out</summary>
+                        <div style="position: absolute; right: 0; top: 120%; background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 1.25rem; width: 300px; z-index: 30; box-shadow: var(--card-shadow-lg);">
+                            <h4 style="margin-bottom: 0.75rem;">Deposit / Withdraw Cash</h4>
+                            <form method="POST" action="/ui/actions/flow">
+                                <input type="hidden" name="account_code" value="{{ a.account_code }}">
+                                <input type="hidden" name="redirect_to" value="/ui/client/{{ client.id }}">
+                                <div class="form-group">
+                                    <label>Action Type</label>
+                                    <select name="flow_type">
+                                        <option value="deposit">Deposit (Cash In)</option>
+                                        <option value="withdrawal">Withdrawal (Cash Out)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Amount ({{ a.currency }})</label>
+                                    <input type="number" step="any" min="0.01" name="amount" required placeholder="10000.00">
+                                </div>
+                                <div class="form-group">
+                                    <label>Reference / Note</label>
+                                    <input type="text" name="external_ref" placeholder="Wire transfer ref #">
+                                </div>
+                                <button type="submit" class="btn btn-sm btn-success" style="width: 100%;">Post Cash Flow</button>
+                            </form>
+                        </div>
+                    </details>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💼</div>
+                        <p>No portfolios registered for this client yet. Click "Add New Portfolio" above to create one.</p>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Active Holdings Table -->
+<div class="card" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <div>
+            <h2>📈 Active Holdings & Assets (Rebuilt from Ledger)</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">Live portfolio positions based on immutable transaction lots</p>
+        </div>
         <div>
             {% if positions.max_carried_days > 0 %}
-            <span class="tag tag-warning">Carried-forward up to {{ positions.max_carried_days }} days</span>
+            <span class="tag tag-warning">Price Carried &le; {{ positions.max_carried_days }}d</span>
             {% else %}
-            <span class="tag tag-success">Prices Up-to-date</span>
+            <span class="tag tag-success">● Prices Up to Date</span>
             {% endif %}
         </div>
     </div>
@@ -54,13 +187,13 @@
         <thead>
             <tr>
                 <th>Symbol</th>
-                <th>Name</th>
+                <th>Asset Name</th>
                 <th class="num">Quantity</th>
                 <th class="num">Avg Cost</th>
                 <th class="num">Current Price</th>
                 <th class="num">Market Value ({{ client.base_currency }})</th>
                 <th class="num">Unrealized P&L</th>
-                <th class="num">Weight</th>
+                <th class="num">Target Weight</th>
                 <th>Price Status</th>
             </tr>
         </thead>
@@ -72,14 +205,14 @@
                 <td class="num">{{ p.quantity }}</td>
                 <td class="num">{{ p.avg_cost }}</td>
                 <td class="num">{{ p.current_price }}</td>
-                <td class="num" style="font-weight: 600;">{{ p.market_value }}</td>
-                <td class="num" style="color: {% if p.unrealized_gain|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+                <td class="num" style="font-weight: 700; color: var(--text);">{{ p.market_value }}</td>
+                <td class="num" style="color: {% if p.unrealized_gain|float >= 0 %}var(--success){% else %}var(--danger){% endif %}; font-weight: 600;">
                     {{ p.unrealized_gain }}
                 </td>
                 <td class="num">{{ "%.2f"|format(p.weight|float * 100) }}%</td>
                 <td>
                     {% if p.carried_days > 0 %}
-                    <span class="tag tag-warning">carried {{ p.carried_days }}d</span>
+                    <span class="tag tag-warning">{{ p.carried_days }}d carried</span>
                     {% else %}
                     <span class="tag tag-success">fresh</span>
                     {% endif %}
@@ -87,13 +220,18 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">No open positions. Portfolio is 100% Cash.</td>
+                <td colspan="9">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">💰</div>
+                        <p>No equity holdings. Portfolio is 100% Cash.</p>
+                    </div>
+                </td>
             </tr>
             {% endfor %}
-            <tr style="background-color: rgba(255, 255, 255, 0.03); font-weight: 600;">
-                <td colspan="5"><strong>FREE CASH ({{ client.base_currency }})</strong></td>
-                <td class="num">{{ positions.cash }}</td>
-                <td class="num">0.00</td>
+            <tr style="background: var(--surface-subtle); font-weight: 700;">
+                <td colspan="5"><strong>💵 FREE CASH BALANCES ({{ client.base_currency }})</strong></td>
+                <td class="num" style="color: var(--success); font-size: 1rem;">{{ positions.cash }}</td>
+                <td class="num">&mdash;</td>
                 <td class="num">
                     {% if positions.total_value|float > 0 %}
                     {{ "%.2f"|format((positions.cash|float / positions.total_value|float) * 100) }}%
@@ -108,8 +246,10 @@
 {% if perf and perf.points %}
 <div class="card">
     <div class="card-header">
-        <h2>Daily TWR Return Stream (Start-of-Day Convention)</h2>
-        <span style="font-size: 0.85rem; color: var(--text-muted);">r(D) = close(D) / (close(D-1) + external_flows(D)) - 1</span>
+        <div>
+            <h2>📊 Daily TWR Return Stream (Start-of-Day Convention)</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">r(D) = close(D) / (close(D-1) + external_flows(D)) - 1</p>
+        </div>
     </div>
     <table>
         <thead>
@@ -117,32 +257,32 @@
                 <th>Date</th>
                 <th class="num">Close Value</th>
                 <th class="num">Start Value</th>
-                <th class="num">External Flow</th>
+                <th class="num">External Cash Flow</th>
                 <th class="num">Daily Return</th>
                 <th class="num">Cumulative TWR</th>
-                <th>Carried Days</th>
+                <th>Price Status</th>
             </tr>
         </thead>
         <tbody>
             {% for pt in perf.points[-15:]|reverse %}
             <tr>
-                <td>{{ pt.day }}</td>
+                <td style="font-family: var(--font-mono);">{{ pt.day }}</td>
                 <td class="num">{{ pt.close_value }}</td>
                 <td class="num">{{ pt.start_value }}</td>
                 <td class="num" style="color: {% if pt.external_flow|float > 0 %}var(--success){% elif pt.external_flow|float < 0 %}var(--warning){% else %}var(--text-muted){% endif %};">
                     {{ pt.external_flow }}
                 </td>
-                <td class="num" style="color: {% if pt.daily_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-                    {{ "%.4f"|format(pt.daily_return|float * 100) }}%
+                <td class="num" style="color: {% if pt.daily_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %}; font-weight: 600;">
+                    {{ "%+.4f"|format(pt.daily_return|float * 100) }}%
                 </td>
-                <td class="num" style="font-weight: 600; color: {% if pt.cumulative_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
-                    {{ "%.4f"|format(pt.cumulative_return|float * 100) }}%
+                <td class="num" style="font-weight: 700; color: {% if pt.cumulative_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+                    {{ "%+.4f"|format(pt.cumulative_return|float * 100) }}%
                 </td>
                 <td>
                     {% if pt.carried_days > 0 %}
-                    <span class="tag tag-warning">{{ pt.carried_days }}d</span>
+                    <span class="tag tag-warning">{{ pt.carried_days }}d carried</span>
                     {% else %}
-                    <span class="tag tag-success">0d</span>
+                    <span class="tag tag-success">0d (live)</span>
                     {% endif %}
                 </td>
             </tr>

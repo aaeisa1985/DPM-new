@@ -54,6 +54,46 @@ def _clients_with_values(db: Session) -> list[dict[str, Any]]:
     return res
 
 
+def _accounts_with_details(db: Session, client_id: str | None = None) -> list[dict[str, Any]]:
+    stmt = select(Account).order_by(Account.account_code)
+    if client_id:
+        stmt = stmt.where(Account.client_id == client_id)
+    accounts = db.execute(stmt).scalars().all()
+    today = date.today()
+    res = []
+    for acc in accounts:
+        client = db.get(Client, acc.client_id)
+        mandate = db.get(Mandate, acc.mandate_id)
+        book_cash = acc.opening_cash
+        total_val = acc.opening_cash
+        positions_count = 0
+        try:
+            book = build_book(db, acc.id, today)
+            val = value_positions(db, book.positions, today, acc.currency)
+            book_cash = book.cash
+            total_val = val.total + book.cash
+            positions_count = len(book.positions)
+        except Exception:
+            pass
+        res.append(
+            {
+                "id": acc.id,
+                "account_code": acc.account_code,
+                "client_id": acc.client_id,
+                "client_name": client.display_name if client else "-",
+                "client_code": client.code if client else "-",
+                "mandate_id": acc.mandate_id,
+                "mandate_name": mandate.name if mandate else "-",
+                "currency": acc.currency,
+                "opening_cash": s_cash(acc.opening_cash, acc.currency),
+                "current_cash": s_cash(book_cash, acc.currency),
+                "total_value": s_cash(total_val, acc.currency),
+                "positions_count": positions_count,
+            }
+        )
+    return res
+
+
 @router.get("/")
 def root_redirect():
     return RedirectResponse(url="/ui/dashboard", status_code=302)
@@ -62,6 +102,7 @@ def root_redirect():
 @router.get("/ui/dashboard", response_class=HTMLResponse)
 def page_dashboard(request: Request, db: Session = Depends(get_db)):
     clients = _clients_with_values(db)
+    accounts = _accounts_with_details(db)
     mandates = db.execute(select(Mandate)).scalars().all()
     plans_rows = (
         db.execute(select(RebalancePlan).order_by(RebalancePlan.created_at.desc()).limit(5)).scalars().all()
@@ -95,6 +136,7 @@ def page_dashboard(request: Request, db: Session = Depends(get_db)):
         {
             "active_tab": "dashboard",
             "clients": clients,
+            "accounts": accounts,
             "mandates": mandates,
             "plans": plans,
             "recent_audit": recent_audit,
@@ -107,12 +149,16 @@ def page_dashboard(request: Request, db: Session = Depends(get_db)):
 @router.get("/ui/clients", response_class=HTMLResponse)
 def page_clients(request: Request, db: Session = Depends(get_db)):
     clients = _clients_with_values(db)
+    accounts = _accounts_with_details(db)
+    mandates = db.execute(select(Mandate).order_by(Mandate.name)).scalars().all()
     return templates.TemplateResponse(
         request,
         "clients.html",
         {
             "active_tab": "clients",
             "clients": clients,
+            "accounts": accounts,
+            "mandates": mandates,
         },
     )
 
@@ -125,6 +171,9 @@ def page_client_detail(id: str, request: Request, db: Session = Depends(get_db))
     client = db.get(Client, id)
     if client is None:
         raise HTTPException(status_code=404, detail="Client not found")
+
+    client_accounts = _accounts_with_details(db, client_id=id)
+    mandates = db.execute(select(Mandate).where(Mandate.client_id == id)).scalars().all()
 
     positions = get_client_positions(id=id, as_of=None, db=db)
     perf = None
@@ -139,6 +188,8 @@ def page_client_detail(id: str, request: Request, db: Session = Depends(get_db))
         {
             "active_tab": "clients",
             "client": client,
+            "client_accounts": client_accounts,
+            "mandates": mandates,
             "positions": positions,
             "perf": perf,
         },
@@ -355,6 +406,133 @@ def action_create_client(
         db=db,
     )
     return RedirectResponse(url="/ui/clients", status_code=303)
+
+
+@router.post("/ui/actions/account")
+def action_create_account(
+    client_id: str = Form(...),
+    account_code: str = Form(...),
+    currency: str = Form("USD"),
+    opening_cash: str = Form("0.00"),
+    mandate_name: str | None = Form(None),
+    mandate_id: str | None = Form(None),
+    target_cash_pct: str = Form("10"),
+    redirect_to: str = Form("/ui/clients"),
+    db: Session = Depends(get_db),
+):
+    from app.core.audit import write_audit
+
+    client = db.get(Client, client_id)
+    if client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+
+    m_id = mandate_id if mandate_id and mandate_id.strip() else None
+    if not m_id:
+        m_name = (mandate_name or "").strip() or f"{account_code.upper().strip()} Mandate"
+        mandate = Mandate(client_id=client.id, name=m_name, status="active")
+        db.add(mandate)
+        db.flush()
+        write_audit(
+            db,
+            entity_type="mandate",
+            entity_id=mandate.id,
+            action="create",
+            payload={"client_id": client.id, "name": mandate.name, "status": mandate.status},
+        )
+        try:
+            cash_val = Decimal(target_cash_pct or "10") / Decimal("100")
+            if cash_val > 1 or cash_val < 0:
+                cash_val = Decimal("0.10")
+        except Exception:
+            cash_val = Decimal("0.10")
+
+        version = MandateVersion(
+            mandate_id=mandate.id,
+            version=1,
+            effective_from=date.today(),
+            drift_tolerance=Decimal("0.05"),
+            lot_method="fifo",
+            weights_json={"CASH": str(cash_val)},
+        )
+        db.add(version)
+        db.flush()
+        write_audit(
+            db,
+            entity_type="mandate_version",
+            entity_id=version.id,
+            action="create",
+            payload={"mandate_id": mandate.id, "version": 1, "weights": version.weights_json},
+        )
+        m_id = mandate.id
+
+    account = Account(
+        account_code=account_code.strip().upper(),
+        client_id=client.id,
+        mandate_id=m_id,
+        currency=currency.strip().upper(),
+        opening_cash=Decimal(opening_cash or "0.00"),
+    )
+    db.add(account)
+    db.flush()
+    write_audit(
+        db,
+        entity_type="account",
+        entity_id=account.id,
+        action="create",
+        payload={
+            "account_code": account.account_code,
+            "currency": account.currency,
+            "opening_cash": str(account.opening_cash),
+        },
+    )
+    db.commit()
+    return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.post("/ui/actions/flow")
+def action_create_flow(
+    account_code: str = Form(...),
+    flow_type: str = Form("deposit"),
+    amount: str = Form(...),
+    external_ref: str | None = Form(None),
+    flow_date: str | None = Form(None),
+    redirect_to: str = Form("/ui/clients"),
+    db: Session = Depends(get_db),
+):
+    from app.services.ledger import create_flow, resolve_account
+
+    account = resolve_account(db, account_code=account_code.strip().upper())
+    d_flow = date.fromisoformat(flow_date) if flow_date else date.today()
+    ref = (external_ref or "").strip() or f"UI-{flow_type.upper()}-{date.today().strftime('%Y%m%d%H%M%S')}"
+    create_flow(
+        db,
+        account_id=account.id,
+        flow_date=d_flow,
+        type=flow_type,
+        amount=Decimal(amount),
+        external_ref=ref,
+    )
+    db.commit()
+    return RedirectResponse(url=redirect_to, status_code=303)
+
+
+@router.post("/ui/actions/sync-prices")
+def action_sync_prices(
+    symbols_text: str = Form(...),
+    source: str = Form("auto"),
+    force: str | None = Form(None),
+    redirect_to: str = Form("/ui/data"),
+    db: Session = Depends(get_db),
+):
+    from app.engines.pricing import sync_daily_prices
+
+    syms = [
+        s.strip().upper() for s in symbols_text.replace("\n", ",").replace(" ", ",").split(",") if s.strip()
+    ]
+    if syms:
+        sync_daily_prices(db, symbols=syms, source=source, force=force == "true")
+        db.commit()
+    return RedirectResponse(url=f"{redirect_to}?synced=true", status_code=303)
 
 
 @router.post("/ui/actions/version")

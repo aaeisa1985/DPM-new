@@ -1,23 +1,63 @@
 {% extends "base.html" %}
 
-{% block title %}Data & Backup Management{% endblock %}
+{% block title %}Data, Market & Backups{% endblock %}
 
 {% block content %}
 <div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
     <div>
-        <h1>Data, CSV Import & Backups</h1>
-        <p style="color: var(--text-muted); font-size: 0.95rem;">Atomic CSV ingestion with dry-run verification, SQLite VACUUM INTO backups & checksum-validated restore</p>
+        <h1>Data, Live Market & Backups</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Live market price sync (TradingView + Yahoo), atomic CSV ingestion with dry-run, and SHA-256 verified SQLite backups</p>
     </div>
+</div>
+
+<!-- Live Price Sync Card -->
+<div class="card" style="border-top: 3px solid var(--primary); margin-bottom: 2rem;">
+    <div class="card-header">
+        <div>
+            <h2>⚡ Sync Live Daily Market Prices</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.2rem;">Single-request batch price ingestion for Abu Dhabi (ADX), Dubai (DFM), Saudi (Tadawul), and US Markets</p>
+        </div>
+        <span class="tag tag-primary">Free &middot; Zero Keys &middot; Fail-Closed</span>
+    </div>
+    <form method="POST" action="/ui/actions/sync-prices">
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 1.25rem;">
+            <div class="form-group">
+                <label for="symbols_text">Stock Symbols (Comma or space separated)</label>
+                <input type="text" id="symbols_text" name="symbols_text" required value="2222.SR, 1120.SR, FAB.ADX, ALDAR.ADX, EMAAR.AE, SPY, QQQ">
+                <span class="form-hint">Supports ADX (e.g. FAB.ADX, ALDAR.ADX, EAND.ADX), DFM (EMAAR.AE), Tadawul (2222.SR), US (SPY, AAPL)</span>
+            </div>
+            <div class="form-group">
+                <label for="source">Pricing Engine Source</label>
+                <select id="source" name="source">
+                    <option value="auto" selected>Auto-Route (TradingView for Gulf / Yahoo for US & Saudi)</option>
+                    <option value="tradingview">TradingView Scanner (ADX, DFM, Tadawul)</option>
+                    <option value="yahoo">Yahoo Finance (US Stocks, ETFs, Saudi .SR)</option>
+                </select>
+                <span class="form-hint">Broker monthly CSV remains the authoritative reference</span>
+            </div>
+        </div>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 0.5rem;">
+            <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <input type="checkbox" id="force" name="force" value="true" style="width: auto;">
+                <label for="force" style="margin: 0; cursor: pointer; font-size: 0.85rem;">Force refresh (Overwrite existing cache entries for bar date)</label>
+            </div>
+            <button type="submit" class="btn"><span>🔄</span> Sync Prices Now</button>
+        </div>
+    </form>
 </div>
 
 <div class="grid-2" style="margin-bottom: 2rem;">
     <div class="card">
         <div class="card-header">
-            <h2>CSV Data Importer (Dry-run by Default)</h2>
+            <div>
+                <h2>📁 CSV Data Importer</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">Atomic ledger ingestion with dry-run verification</p>
+            </div>
+            <span class="tag tag-info">Dry-Run Default</span>
         </div>
         <form method="POST" action="/ui/actions/import" enctype="multipart/form-data">
             <div class="form-group">
-                <label for="kind">Data Type</label>
+                <label for="kind">Data Entity Type</label>
                 <select id="kind" name="kind">
                     <option value="transactions">Transactions (date, account_code, external_ref, side, symbol, quantity, unit_price, currency, fee, fx_rate, sequence)</option>
                     <option value="prices">Historical Prices (date, symbol, close, currency)</option>
@@ -32,40 +72,48 @@
             </div>
             <div class="form-group">
                 <label for="csv_text">Or Paste CSV Text</label>
-                <textarea id="csv_text" name="csv_text" rows="5" style="font-family: var(--font-mono); font-size: 0.85rem;" placeholder="date,account_code,external_ref,side,symbol,quantity,unit_price,currency,fee,fx_rate,sequence"></textarea>
+                <textarea id="csv_text" name="csv_text" rows="4" style="font-family: var(--font-mono); font-size: 0.82rem;" placeholder="date,account_code,external_ref,side,symbol,quantity,unit_price,currency,fee,fx_rate,sequence"></textarea>
             </div>
-            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem;">
+            <div class="form-group" style="display: flex; align-items: center; gap: 0.5rem; background: var(--surface-subtle); padding: 0.75rem 1rem; border-radius: 8px;">
                 <input type="checkbox" id="dry_run" name="dry_run" value="true" checked style="width: auto;">
-                <label for="dry_run" style="margin: 0; cursor: pointer;"><strong>Dry Run Simulation</strong> (Validates and reports without modifying database)</label>
+                <label for="dry_run" style="margin: 0; cursor: pointer; font-size: 0.85rem;">
+                    <strong>Dry Run Simulation</strong> &mdash; Validates integrity without touching database
+                </label>
             </div>
-            <button type="submit" class="btn">Execute Ingestion</button>
+            <button type="submit" class="btn btn-outline" style="width: 100%;">Execute CSV Ingestion</button>
         </form>
     </div>
 
     <div class="card">
         <div class="card-header">
-            <h2>Database Backups (VACUUM INTO)</h2>
+            <div>
+                <h2>💾 Database Hot Backups</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">SQLite VACUUM INTO snapshots with SHA-256 manifests</p>
+            </div>
+            <span class="tag tag-success">WAL Mode Safe</span>
         </div>
-        <p style="color: var(--text-muted); font-size: 0.9rem; margin-bottom: 1rem;">
-            Creates an atomic hot backup of the SQLite database in WAL mode, verifies SHA-256 integrity, and bundles a manifest.
+        <p style="color: var(--text-muted); font-size: 0.88rem; margin-bottom: 1.25rem;">
+            Generates an atomic, consistent snapshot of the active database while the engine is running. Each backup is packed into a ZIP archive with a SHA-256 manifest.
         </p>
-        <div style="margin-bottom: 1.5rem;">
-            <a href="/export/backup?download=true" class="btn">Generate & Download Backup ZIP</a>
+        <div style="margin-bottom: 1.75rem;">
+            <a href="/export/backup?download=true" class="btn" style="width: 100%;">
+                <span>📦</span> Generate & Download Backup ZIP
+            </a>
         </div>
 
         <hr style="border: 0; border-top: 1px solid var(--border); margin: 1.5rem 0;">
 
-        <h3 style="margin-bottom: 0.75rem;">Restore from Backup ZIP</h3>
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 1rem;">
-            Verifies manifest SHA-256 before touching the database. Creates a safety backup of current state.
+        <h3 style="margin-bottom: 0.5rem;">Restore from Backup Archive</h3>
+        <p style="color: var(--text-muted); font-size: 0.82rem; margin-bottom: 1rem;">
+            Cryptographically validates manifest hash before applying. Automatically creates a safety backup of current state.
         </p>
         <form method="POST" action="/ui/actions/restore" enctype="multipart/form-data">
             <div class="form-group">
                 <label>Select Backup Archive (.zip)</label>
                 <input type="file" name="backup_file" accept=".zip,application/zip" required>
             </div>
-            <button type="submit" class="btn btn-outline" style="border-color: var(--warning); color: var(--warning);">
-                Restore & Restart Engine
+            <button type="submit" class="btn btn-outline" style="width: 100%; border-color: var(--warning); color: var(--warning-text);">
+                <span>⚠️</span> Verify & Restore Database
             </button>
         </form>
     </div>
@@ -74,7 +122,10 @@
 {% if import_result %}
 <div class="card">
     <div class="card-header">
-        <h2>Import Results &mdash; {{ import_result.kind }}</h2>
+        <div>
+            <h2>CSV Import Results &mdash; {{ import_result.kind }}</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">Processed {{ import_result.total }} rows</p>
+        </div>
         <div>
             {% if import_result.dry_run %}
             <span class="tag tag-warning">DRY RUN SIMULATION (NOT COMMITTED)</span>
@@ -83,11 +134,11 @@
             {% endif %}
         </div>
     </div>
-    <div style="margin-bottom: 1rem; color: var(--text-muted);">
-        Total rows processed: {{ import_result.total }} &bull; Accepted: {{ import_result.accepted|length }} &bull; Rejected: {{ import_result.rejected|length }}
+    <div style="margin-bottom: 1rem; color: var(--text-muted); font-size: 0.9rem;">
+        Total rows: <strong>{{ import_result.total }}</strong> &bull; Accepted: <strong style="color: var(--success);">{{ import_result.accepted|length }}</strong> &bull; Rejected: <strong style="color: var(--danger);">{{ import_result.rejected|length }}</strong>
     </div>
     {% if import_result.rejected %}
-    <h3 style="color: var(--danger); margin-bottom: 0.5rem;">Rejected Rows</h3>
+    <h3 style="color: var(--danger); margin-bottom: 0.75rem;">Rejected Rows Details</h3>
     <table>
         <thead>
             <tr>
@@ -99,7 +150,7 @@
         <tbody>
             {% for rej in import_result.rejected %}
             <tr>
-                <td>Row {{ rej.row }}</td>
+                <td style="font-family: var(--font-mono);">Row #{{ rej.row }}</td>
                 <td><span class="tag tag-danger">{{ rej.code }}</span></td>
                 <td>{{ rej.detail }}</td>
             </tr>

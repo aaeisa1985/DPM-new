@@ -5,73 +5,245 @@
 {% block content %}
 <div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
     <div>
-        <h1>Clients & Portfolios</h1>
-        <p style="color: var(--text-muted); font-size: 0.95rem;">Manage segregated client profiles, base currencies, and portfolios</p>
+        <h1>Clients & Investment Portfolios</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Manage client relationships, segregated accounts, currencies, and portfolio allocations</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+        <a href="#new-portfolio-form" class="btn btn-sm"><span>➕</span> New Portfolio</a>
+        <a href="#new-client-form" class="btn btn-outline btn-sm"><span>👤</span> New Client</a>
     </div>
 </div>
 
-<div class="grid-2" style="align-items: start; margin-bottom: 2rem;">
-    <div class="card">
+<div class="grid-3" style="margin-bottom: 2rem;">
+    <div class="stat-card accent-indigo">
+        <div class="stat-label">Active Clients</div>
+        <div class="stat-val" style="color: var(--primary);">{{ clients|length }}</div>
+        <div class="stat-sub">Registered wealth entities & institutions</div>
+    </div>
+    <div class="stat-card accent-emerald">
+        <div class="stat-label">Portfolios & Accounts</div>
+        <div class="stat-val" style="color: var(--success);">{{ accounts|length }}</div>
+        <div class="stat-sub">Segregated portfolios with 1:1 strategy mandates</div>
+    </div>
+    <div class="stat-card accent-amber">
+        <div class="stat-label">Available Strategies</div>
+        <div class="stat-val">{{ mandates|length }}</div>
+        <div class="stat-sub">Active investment mandate versions</div>
+    </div>
+</div>
+
+<div class="grid-2" style="align-items: start; margin-bottom: 2.5rem;">
+    <!-- Form 1: New Portfolio / Account -->
+    <div class="card" id="new-portfolio-form" style="border-top: 3px solid var(--success);">
         <div class="card-header">
-            <h2>Add New Client</h2>
+            <div>
+                <h2>➕ Create New Portfolio / Account</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">إضافة محفظة استثمارية جديدة وربطها بسياسة استثمار</p>
+            </div>
+            <span class="tag tag-success">Portfolio Engine</span>
+        </div>
+        {% if clients|length > 0 %}
+        <form method="POST" action="/ui/actions/account">
+            <div class="form-group">
+                <label for="client_id">Assign to Client</label>
+                <select id="client_id" name="client_id" required>
+                    {% for c in clients %}
+                    <option value="{{ c.id }}">{{ c.code }} &mdash; {{ c.display_name }} ({{ c.base_currency }})</option>
+                    {% endfor %}
+                </select>
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="account_code">Portfolio / Account Code</label>
+                    <input type="text" id="account_code" name="account_code" required placeholder="e.g. ACC-101 or UAE-GROWTH">
+                    <span class="form-hint">Unique identifier for the account</span>
+                </div>
+                <div class="form-group">
+                    <label for="currency">Portfolio Currency</label>
+                    <select id="currency" name="currency">
+                        <option value="AED">AED - UAE Dirham</option>
+                        <option value="SAR">SAR - Saudi Riyal</option>
+                        <option value="USD" selected>USD - US Dollar</option>
+                        <option value="EUR">EUR - Euro</option>
+                        <option value="GBP">GBP - British Pound</option>
+                        <option value="KWD">KWD - Kuwaiti Dinar (3 dp)</option>
+                        <option value="BHD">BHD - Bahraini Dinar (3 dp)</option>
+                        <option value="OMR">OMR - Omani Rial (3 dp)</option>
+                    </select>
+                </div>
+            </div>
+            <div style="display: grid; grid-template-columns: 1.2fr 0.8fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="mandate_name">Strategy / Mandate Name</label>
+                    <input type="text" id="mandate_name" name="mandate_name" placeholder="e.g. Balanced Growth or GCC Dividend">
+                    <span class="form-hint">Auto-creates linked mandate 1:1</span>
+                </div>
+                <div class="form-group">
+                    <label for="target_cash_pct">Target Cash %</label>
+                    <input type="number" step="1" min="0" max="100" id="target_cash_pct" name="target_cash_pct" value="10">
+                    <span class="form-hint">Initial target cash weight</span>
+                </div>
+            </div>
+            <div class="form-group">
+                <label for="opening_cash">Initial Opening Cash</label>
+                <input type="number" step="any" min="0" id="opening_cash" name="opening_cash" value="0.00" placeholder="0.00">
+                <span class="form-hint">Initial cash balance to start trading</span>
+            </div>
+            <button type="submit" class="btn btn-success" style="width: 100%;">Create Portfolio & Strategy</button>
+        </form>
+        {% else %}
+        <div class="empty-state">
+            <div class="empty-state-icon">👤</div>
+            <p>Please register a client first before creating a portfolio.</p>
+        </div>
+        {% endif %}
+    </div>
+
+    <!-- Form 2: New Client -->
+    <div class="card" id="new-client-form" style="border-top: 3px solid var(--primary);">
+        <div class="card-header">
+            <div>
+                <h2>👤 Register New Client</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">إضافة عميل أو مكتب عائلي جديد</p>
+            </div>
+            <span class="tag tag-primary">Client Profile</span>
         </div>
         <form method="POST" action="/ui/actions/client">
             <div class="form-group">
-                <label for="code">Client Code (e.g. CLI-001)</label>
-                <input type="text" id="code" name="code" required placeholder="CLI-001">
+                <label for="code">Client Code</label>
+                <input type="text" id="code" name="code" required placeholder="e.g. CLI-001 or FO-ALPHA">
+                <span class="form-hint">Unique short code for identification</span>
             </div>
             <div class="form-group">
                 <label for="display_name">Display Name / Institution</label>
-                <input type="text" id="display_name" name="display_name" required placeholder="Family Office Alpha">
+                <input type="text" id="display_name" name="display_name" required placeholder="e.g. Al-Mansoor Family Office">
             </div>
             <div class="form-group">
-                <label for="base_currency">Base Currency</label>
+                <label for="base_currency">Base Reporting Currency</label>
                 <select id="base_currency" name="base_currency">
-                    <option value="USD">USD - US Dollar (2 dp)</option>
-                    <option value="AED">AED - UAE Dirham (2 dp)</option>
-                    <option value="EUR">EUR - Euro (2 dp)</option>
-                    <option value="GBP">GBP - British Pound (2 dp)</option>
-                    <option value="KWD">KWD - Kuwaiti Dinar (3 dp)</option>
-                    <option value="BHD">BHD - Bahraini Dinar (3 dp)</option>
-                    <option value="OMR">OMR - Omani Rial (3 dp)</option>
+                    <option value="AED">AED - UAE Dirham</option>
+                    <option value="SAR">SAR - Saudi Riyal</option>
+                    <option value="USD" selected>USD - US Dollar</option>
+                    <option value="EUR">EUR - Euro</option>
+                    <option value="GBP">GBP - British Pound</option>
+                    <option value="KWD">KWD - Kuwaiti Dinar</option>
+                    <option value="BHD">BHD - Bahraini Dinar</option>
+                    <option value="OMR">OMR - Omani Rial</option>
                 </select>
+                <span class="form-hint">Used for consolidated reporting & valuation</span>
             </div>
-            <button type="submit" class="btn">Create Client</button>
+            <button type="submit" class="btn" style="width: 100%;">Register Client</button>
         </form>
     </div>
+</div>
 
-    <div class="card">
-        <div class="card-header">
-            <h2>Client Directory ({{ clients|length }})</h2>
+<!-- Table 1: Portfolios & Accounts Directory -->
+<div class="card" style="margin-bottom: 2rem;">
+    <div class="card-header">
+        <div>
+            <h2>💼 Portfolios & Investment Accounts ({{ accounts|length }})</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">All segregated portfolio accounts with live cash & market valuations</p>
         </div>
-        <table>
-            <thead>
-                <tr>
-                    <th>Code</th>
-                    <th>Name</th>
-                    <th>Base CCY</th>
-                    <th class="num">Value</th>
-                    <th style="text-align: right;">Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for c in clients %}
-                <tr>
-                    <td><strong>{{ c.code }}</strong></td>
-                    <td>{{ c.display_name }}</td>
-                    <td><span class="tag tag-info">{{ c.base_currency }}</span></td>
-                    <td class="num">{{ c.total_value }}</td>
-                    <td style="text-align: right;">
-                        <a href="/ui/client/{{ c.id }}" class="btn btn-outline btn-sm">Portfolio View</a>
-                    </td>
-                </tr>
-                {% else %}
-                <tr>
-                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No clients found.</td>
-                </tr>
-                {% endfor %}
-            </tbody>
-        </table>
+        <a href="#new-portfolio-form" class="btn btn-outline btn-sm">➕ Add Portfolio</a>
     </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Account Code</th>
+                <th>Client</th>
+                <th>Investment Strategy</th>
+                <th>CCY</th>
+                <th class="num">Opening Cash</th>
+                <th class="num">Available Cash</th>
+                <th class="num">Total Value</th>
+                <th class="num">Open Positions</th>
+                <th style="text-align: right;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for a in accounts %}
+            <tr>
+                <td><strong>{{ a.account_code }}</strong></td>
+                <td>
+                    <a href="/ui/client/{{ a.client_id }}" style="color: var(--text); font-weight: 600; text-decoration: none;">
+                        {{ a.client_name }} <span style="color: var(--text-muted); font-size: 0.8rem;">[{{ a.client_code }}]</span>
+                    </a>
+                </td>
+                <td>
+                    {% if a.mandate_id %}
+                    <a href="/ui/mandate/{{ a.mandate_id }}/drift" style="color: var(--primary); text-decoration: none; font-weight: 500;">
+                        🎯 {{ a.mandate_name }}
+                    </a>
+                    {% else %}
+                    <span style="color: var(--text-muted);">-</span>
+                    {% endif %}
+                </td>
+                <td><span class="tag tag-info">{{ a.currency }}</span></td>
+                <td class="num">{{ a.opening_cash }}</td>
+                <td class="num" style="color: var(--success); font-weight: 600;">{{ a.current_cash }}</td>
+                <td class="num" style="font-weight: 700; color: var(--primary);">{{ a.total_value }}</td>
+                <td class="num">{{ a.positions_count }}</td>
+                <td style="text-align: right;">
+                    <a href="/ui/client/{{ a.client_id }}" class="btn btn-outline btn-sm">View Details &rarr;</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📂</div>
+                        <p>No portfolios created yet. Use the form above to add your first portfolio account.</p>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<!-- Table 2: Clients Directory -->
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2>👥 Client Entities ({{ clients|length }})</h2>
+            <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">Registered institutional and family office entities</p>
+        </div>
+        <a href="#new-client-form" class="btn btn-outline btn-sm">➕ Add Client</a>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Display Name</th>
+                <th>Base Currency</th>
+                <th class="num">Portfolios</th>
+                <th class="num">Consolidated Value</th>
+                <th style="text-align: right;">Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in clients %}
+            <tr>
+                <td><strong>{{ c.code }}</strong></td>
+                <td>{{ c.display_name }}</td>
+                <td><span class="tag tag-primary">{{ c.base_currency }}</span></td>
+                <td class="num">{{ c.accounts_count }}</td>
+                <td class="num" style="font-weight: 700; color: var(--primary);">{{ c.total_value }}</td>
+                <td style="text-align: right;">
+                    <a href="/ui/client/{{ c.id }}" class="btn btn-outline btn-sm">Portfolio View & TWR &rarr;</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">👥</div>
+                        <p>No clients registered. Use the form above to register a client.</p>
+                    </div>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
 </div>
 {% endblock %}

@@ -5,74 +5,89 @@
 {% block content %}
 <div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
     <div>
-        <h1>Mandates & Allocation Drift</h1>
-        <p style="color: var(--text-muted); font-size: 0.95rem;">Monitor investment mandates, versioned target weights (inclusive of CASH = 1.0), and tolerance drift</p>
+        <h1>Investment Mandates & Allocation Drift</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Monitor investment mandates, versioned target weights (inclusive of CASH = 1.0), and real-time tolerance drift</p>
     </div>
 </div>
 
-<div class="grid-2" style="align-items: start; margin-bottom: 2rem;">
-    <div class="card">
+<div class="grid-2" style="align-items: start; margin-bottom: 2.5rem;">
+    <div class="card" style="border-top: 3px solid var(--primary);">
         <div class="card-header">
-            <h2>Add New Mandate Version</h2>
+            <div>
+                <h2>➕ Publish New Mandate Version</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">تحديث أوزان السياسة الاستثمارية بإصدار جديد</p>
+            </div>
+            <span class="tag tag-primary">Immutable History</span>
         </div>
         <form method="POST" action="/ui/actions/version">
             <div class="form-group">
-                <label for="mandate_id">Mandate</label>
+                <label for="mandate_id">Select Mandate</label>
                 <select id="mandate_id" name="mandate_id" required>
                     {% for m in mandates %}
-                    <option value="{{ m.id }}">{{ m.name }}</option>
+                    <option value="{{ m.id }}">{{ m.name }} (v{{ m.current_version or 1 }})</option>
                     {% endfor %}
                 </select>
             </div>
-            <div class="form-group">
-                <label for="effective_from">Effective Date</label>
-                <input type="date" id="effective_from" name="effective_from" required value="{{ today }}">
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                <div class="form-group">
+                    <label for="effective_from">Effective Date</label>
+                    <input type="date" id="effective_from" name="effective_from" required value="{{ today }}">
+                </div>
+                <div class="form-group">
+                    <label for="drift_tolerance">Drift Tolerance</label>
+                    <input type="number" step="0.005" id="drift_tolerance" name="drift_tolerance" value="0.05" required>
+                    <span class="form-hint">e.g. 0.05 for &plusmn;5% tolerance</span>
+                </div>
             </div>
             <div class="form-group">
-                <label for="drift_tolerance">Drift Tolerance (e.g. 0.05 for 5%)</label>
-                <input type="number" step="0.001" id="drift_tolerance" name="drift_tolerance" value="0.05" required>
-            </div>
-            <div class="form-group">
-                <label for="lot_method">Lot Method</label>
+                <label for="lot_method">Tax-Lot Depletion Method</label>
                 <select id="lot_method" name="lot_method">
-                    <option value="fifo">FIFO (First-In, First-Out)</option>
-                    <option value="hifo">HIFO (Highest-In, First-Out)</option>
+                    <option value="fifo">FIFO &mdash; First-In, First-Out</option>
+                    <option value="hifo">HIFO &mdash; Highest-In, First-Out</option>
                 </select>
             </div>
             <div class="form-group">
-                <label for="weights_text">Target Weights JSON (Must sum to 1.0, include CASH)</label>
-                <textarea id="weights_text" name="weights_text" rows="4" style="font-family: var(--font-mono); font-size: 0.85rem;" required>{"CASH": "0.10", "SPY": "0.50", "QQQ": "0.40"}</textarea>
+                <label for="weights_text">Target Weights JSON (Must sum to 1.0, including CASH)</label>
+                <textarea id="weights_text" name="weights_text" rows="3" style="font-family: var(--font-mono); font-size: 0.85rem;" required>{"CASH": "0.10", "SPY": "0.50", "QQQ": "0.40"}</textarea>
+                <span class="form-hint">Format: {"CASH": "0.10", "FAB.ADX": "0.40", "2222.SR": "0.50"}</span>
             </div>
-            <button type="submit" class="btn">Publish New Version</button>
+            <button type="submit" class="btn" style="width: 100%;">Publish Version & Activate</button>
         </form>
     </div>
 
     <div class="card">
         <div class="card-header">
-            <h2>Active Mandates</h2>
+            <div>
+                <h2>🎯 Active Investment Mandates ({{ mandates|length }})</h2>
+                <p style="color: var(--text-muted); font-size: 0.82rem; margin-top: 0.2rem;">All client strategies and target weight matrices</p>
+            </div>
         </div>
         <table>
             <thead>
                 <tr>
-                    <th>Mandate</th>
+                    <th>Strategy Name</th>
                     <th>Status</th>
-                    <th>Current Version</th>
-                    <th style="text-align: right;">Action</th>
+                    <th>Version</th>
+                    <th style="text-align: right;">Drift Inspection</th>
                 </tr>
             </thead>
             <tbody>
                 {% for m in mandates %}
                 <tr>
                     <td><strong>{{ m.name }}</strong></td>
-                    <td><span class="tag tag-success">{{ m.status }}</span></td>
-                    <td>v{{ m.current_version or 1 }}</td>
+                    <td><span class="tag tag-success">● {{ m.status }}</span></td>
+                    <td><span class="tag tag-info">v{{ m.current_version or 1 }}</span></td>
                     <td style="text-align: right;">
-                        <a href="/ui/mandate/{{ m.id }}/drift" class="btn btn-outline btn-sm">Inspect Drift</a>
+                        <a href="/ui/mandate/{{ m.id }}/drift" class="btn btn-outline btn-sm">Inspect Drift &rarr;</a>
                     </td>
                 </tr>
                 {% else %}
                 <tr>
-                    <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No mandates available.</td>
+                    <td colspan="4">
+                        <div class="empty-state" style="padding: 1.5rem;">
+                            <p>No mandates available yet.</p>
+                        </div>
+                    </td>
                 </tr>
                 {% endfor %}
             </tbody>
@@ -81,13 +96,17 @@
 </div>
 
 {% if selected_drift %}
-<div class="card">
+<div class="card" style="border-top: 3px solid var(--accent);">
     <div class="card-header">
         <div>
-            <h2>Allocation Drift Matrix &mdash; {{ selected_mandate.name }}</h2>
-            <p style="color: var(--text-muted); font-size: 0.85rem;">Tolerance: &plusmn;{{ "%.1f"|format(selected_drift.tolerance|float * 100) }}% &bull; As of: {{ selected_drift.as_of }}</p>
+            <h2>📊 Real-time Allocation Drift &mdash; {{ selected_mandate.name }}</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.2rem;">
+                Tolerance: <strong>&plusmn;{{ "%.1f"|format(selected_drift.tolerance|float * 100) }}%</strong> &bull; Valuation As of: <strong>{{ selected_drift.as_of }}</strong>
+            </p>
         </div>
-        <a href="/ui/rebalance?mandate_id={{ selected_mandate.id }}" class="btn btn-sm">Generate Rebalance Plan</a>
+        <a href="/ui/rebalance?mandate_id={{ selected_mandate.id }}" class="btn btn-sm btn-success">
+            <span>⚖️</span> Generate Rebalance Plan
+        </a>
     </div>
     <table>
         <thead>
@@ -96,7 +115,7 @@
                 <th class="num">Current Value</th>
                 <th class="num">Target Weight</th>
                 <th class="num">Actual Weight</th>
-                <th class="num">Drift</th>
+                <th class="num">Allocation Drift</th>
                 <th>Status</th>
             </tr>
         </thead>
@@ -106,17 +125,17 @@
                 <td><strong>{{ r.symbol }}</strong></td>
                 <td class="num">{{ r.value }}</td>
                 <td class="num">{{ "%.2f"|format(r.target_weight|float * 100) }}%</td>
-                <td class="num">{{ "%.2f"|format(r.actual_weight|float * 100) }}%</td>
-                <td class="num" style="font-weight: 600; color: {% if r.breached %}var(--danger){% else %}var(--text){% endif %};">
+                <td class="num" style="font-weight: 600;">{{ "%.2f"|format(r.actual_weight|float * 100) }}%</td>
+                <td class="num" style="font-weight: 700; color: {% if r.breached %}var(--danger){% else %}var(--success){% endif %};">
                     {{ "%+.2f"|format(r.drift|float * 100) }}%
                 </td>
                 <td>
                     {% if r.breached %}
-                    <span class="tag tag-danger">BREACHED</span>
+                    <span class="tag tag-danger">⚠️ BREACHED</span>
                     {% elif r.unassigned %}
                     <span class="tag tag-warning">UNASSIGNED</span>
                     {% else %}
-                    <span class="tag tag-success">IN TOLERANCE</span>
+                    <span class="tag tag-success">✓ IN TOLERANCE</span>
                     {% endif %}
                 </td>
             </tr>
