@@ -382,6 +382,12 @@ def test_eodhd_batch_guardrails_and_daily_sync_cache(test_db: Session, client_en
         assert tv_res["FAB.ADX"] == Decimal("18.9400")
         assert tv_res["ADX:ALDAR"] == Decimal("7.6500")
 
+        # Verify EAND.ADX -> ADX:ETISALAT alias resolution
+        from app.engines.pricing import _to_tv_ticker
+
+        assert _to_tv_ticker("EAND.ADX") == "ADX:ETISALAT"
+        assert _to_tv_ticker("ADX:EAND") == "ADX:ETISALAT"
+
         fab_sec = Security(
             symbol="FAB.ADX",
             name="First Abu Dhabi Bank",

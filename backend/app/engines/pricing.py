@@ -322,11 +322,16 @@ def fetch_eodhd_batch(tickers: list[str], api_key: str | None = None) -> dict[st
     return {k: v[0] for k, v in fetch_eodhd_batch_with_dates(tickers, api_key=api_key).items()}
 
 
+_TV_SYMBOL_ALIASES: dict[str, str] = {
+    "ADX:EAND": "ADX:ETISALAT",
+}
+
+
 def _to_tv_ticker(raw: str) -> str:
     """Normalize a symbol to TradingView `EXCHANGE:SYMBOL` format (e.g. `FAB.ADX` -> `ADX:FAB`)."""
     s = raw.strip().upper()
     if ":" in s:
-        return s
+        return _TV_SYMBOL_ALIASES.get(s, s)
     if "." in s:
         sym, ext = s.rsplit(".", 1)
         ext_map = {
@@ -345,15 +350,20 @@ def _to_tv_ticker(raw: str) -> str:
             "CA": "EGX",
         }
         tv_ex = ext_map.get(ext, ext)
-        return f"{tv_ex}:{sym}"
-    return s
+        candidate = f"{tv_ex}:{sym}"
+        return _TV_SYMBOL_ALIASES.get(candidate, candidate)
+    return _TV_SYMBOL_ALIASES.get(s, s)
 
 
 def fetch_tradingview_batch_with_dates(tickers: list[str]) -> dict[str, tuple[Decimal, date]]:
     """Fetch multiple tickers (including ADX, DFM, TADAWUL, KSE, QSE) in ONE TradingView scan request.
 
-    Uses TradingView's official scanner JSON API (`https://scanner.tradingview.com/global/scan`)
-    via `httpx` with zero extra dependencies and extracts each symbol's true bar date from `time`.
+    Note: ``scanner.tradingview.com/global/scan`` is an unofficial internal web-scanner endpoint
+    (best-effort, unauthenticated, subject to change without notice — same tier as ``yfinance``),
+    NOT a contracted official API. Errors remain strictly fail-closed (`PriceUnavailableError`).
+    During market hours, ``close`` reflects the latest trade rather than the post-auction official
+    closing price; monthly broker CSV imports (``source="manual"``) remain the authoritative
+    reference for ``price_history`` and are never overwritten by automatic syncs (Spec 4.10).
     """
     cleaned = [t.strip().upper() for t in tickers if t.strip()]
     if not cleaned:
