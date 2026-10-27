@@ -1,0 +1,156 @@
+{% extends "base.html" %}
+
+{% block title %}Rebalance Plans{% endblock %}
+
+{% block content %}
+<div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
+    <div>
+        <h1>Rebalance Plans & Order Lifecycle</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Settlement-aware rebalancing (SELLs generate settled cash first, BUYs trimmed to target)</p>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Generate Rebalance Plan</h2>
+    </div>
+    <form method="GET" action="/ui/rebalance" style="display: grid; grid-template-columns: 2fr 1fr 1fr auto; gap: 1rem; align-items: flex-end;">
+        <div class="form-group" style="margin: 0;">
+            <label for="mandate_id">Select Mandate</label>
+            <select id="mandate_id" name="mandate_id" required>
+                {% for m in mandates %}
+                <option value="{{ m.id }}" {% if selected_mandate_id == m.id %}selected{% endif %}>{{ m.name }}</option>
+                {% endfor %}
+            </select>
+        </div>
+        <div class="form-group" style="margin: 0;">
+            <label for="as_of">Valuation Date</label>
+            <input type="date" id="as_of" name="as_of" value="{{ as_of }}">
+        </div>
+        <div class="form-group" style="margin: 0;">
+            <label for="execution_date">Execution Date</label>
+            <input type="date" id="execution_date" name="execution_date" value="{{ execution_date }}">
+        </div>
+        <button type="submit" class="btn" name="action" value="preview">Preview Plan</button>
+    </form>
+</div>
+
+{% if preview_error %}
+<div class="card" style="border-color: var(--danger); background: rgba(239, 68, 68, 0.1);">
+    <h3 style="color: var(--danger); margin-bottom: 0.5rem;">Rebalance Infeasible</h3>
+    <p>{{ preview_error }}</p>
+</div>
+{% endif %}
+
+{% if preview %}
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h2>Rebalance Preview &mdash; Estimated Post-Trade State</h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem;">Expires: {{ preview.expires_at[:19] }} UTC</p>
+        </div>
+        <form method="POST" action="/ui/actions/plan/confirm">
+            <input type="hidden" name="mandate_id" value="{{ preview.mandate_id }}">
+            <input type="hidden" name="as_of" value="{{ preview.as_of }}">
+            <input type="hidden" name="execution_date" value="{{ preview.execution_date }}">
+            <button type="submit" class="btn" style="background: var(--success); color: white;">Confirm & Persist Plan</button>
+        </form>
+    </div>
+    <div class="grid-3" style="margin-bottom: 1.5rem;">
+        <div class="stat-card">
+            <div class="stat-label">Starting Cash</div>
+            <div class="stat-val">{{ preview.cash }} {{ preview.currency }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Target Cash (Versioned)</div>
+            <div class="stat-val">{{ preview.cash_target }} {{ preview.currency }}</div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-label">Cash After Orders & Fees</div>
+            <div class="stat-val" style="color: var(--primary);">{{ preview.cash_after }} {{ preview.currency }}</div>
+            <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Est Fee: {{ preview.est_fee_bps }} bps</div>
+        </div>
+    </div>
+
+    <h3>Generated Orders ({{ preview.orders|length }})</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Side</th>
+                <th>Symbol</th>
+                <th class="num">Shares</th>
+                <th class="num">Est Price</th>
+                <th class="num">Est Value</th>
+                <th class="num">Est Fee</th>
+                <th>Settlement</th>
+                <th>Rebalance Reason</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in preview.orders %}
+            <tr>
+                <td>
+                    <span class="tag {% if o.side == 'SELL' %}tag-warning{% else %}tag-success{% endif %}">
+                        {{ o.side }}
+                    </span>
+                </td>
+                <td><strong>{{ o.symbol }}</strong></td>
+                <td class="num">{{ o.quantity }}</td>
+                <td class="num">{{ o.estimated_price }}</td>
+                <td class="num">{{ o.estimated_value }}</td>
+                <td class="num">{{ o.estimated_fee }}</td>
+                <td>{{ o.settlement_date or 'Immediate' }}</td>
+                <td style="color: var(--text-muted); font-size: 0.85rem;">{{ o.reason }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="8" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Portfolio is already aligned with target weights. No orders needed.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+<div class="card">
+    <div class="card-header">
+        <h2>Existing Plans & Execution Tracking</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Plan ID</th>
+                <th>Created</th>
+                <th>Status</th>
+                <th class="num">Cash Target</th>
+                <th class="num">Cash After</th>
+                <th class="num">Orders</th>
+                <th style="text-align: right;">Detail</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in plans %}
+            <tr>
+                <td style="font-family: var(--font-mono); font-size: 0.85rem;">{{ p.plan_id[:12] }}...</td>
+                <td>{{ p.created_at[:16] }}</td>
+                <td>
+                    <span class="tag {% if p.status == 'executed' %}tag-success{% elif p.status == 'confirmed' %}tag-info{% elif p.status == 'expired' %}tag-danger{% else %}tag-warning{% endif %}">
+                        {{ p.status }}
+                    </span>
+                </td>
+                <td class="num">{{ p.cash_target }}</td>
+                <td class="num">{{ p.cash_after }}</td>
+                <td class="num">{{ p.orders|length }}</td>
+                <td style="text-align: right;">
+                    <a href="/ui/plan/{{ p.plan_id }}" class="btn btn-outline btn-sm">Inspect & Fill</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No confirmed plans recorded.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

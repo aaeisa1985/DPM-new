@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+
+{% block title %}Clients & Portfolios{% endblock %}
+
+{% block content %}
+<div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
+    <div>
+        <h1>Clients & Portfolios</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Manage segregated client profiles, base currencies, and portfolios</p>
+    </div>
+</div>
+
+<div class="grid-2" style="align-items: start; margin-bottom: 2rem;">
+    <div class="card">
+        <div class="card-header">
+            <h2>Add New Client</h2>
+        </div>
+        <form method="POST" action="/ui/actions/client">
+            <div class="form-group">
+                <label for="code">Client Code (e.g. CLI-001)</label>
+                <input type="text" id="code" name="code" required placeholder="CLI-001">
+            </div>
+            <div class="form-group">
+                <label for="display_name">Display Name / Institution</label>
+                <input type="text" id="display_name" name="display_name" required placeholder="Family Office Alpha">
+            </div>
+            <div class="form-group">
+                <label for="base_currency">Base Currency</label>
+                <select id="base_currency" name="base_currency">
+                    <option value="USD">USD - US Dollar (2 dp)</option>
+                    <option value="AED">AED - UAE Dirham (2 dp)</option>
+                    <option value="EUR">EUR - Euro (2 dp)</option>
+                    <option value="GBP">GBP - British Pound (2 dp)</option>
+                    <option value="KWD">KWD - Kuwaiti Dinar (3 dp)</option>
+                    <option value="BHD">BHD - Bahraini Dinar (3 dp)</option>
+                    <option value="OMR">OMR - Omani Rial (3 dp)</option>
+                </select>
+            </div>
+            <button type="submit" class="btn">Create Client</button>
+        </form>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Client Directory ({{ clients|length }})</h2>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Base CCY</th>
+                    <th class="num">Value</th>
+                    <th style="text-align: right;">Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for c in clients %}
+                <tr>
+                    <td><strong>{{ c.code }}</strong></td>
+                    <td>{{ c.display_name }}</td>
+                    <td><span class="tag tag-info">{{ c.base_currency }}</span></td>
+                    <td class="num">{{ c.total_value }}</td>
+                    <td style="text-align: right;">
+                        <a href="/ui/client/{{ c.id }}" class="btn btn-outline btn-sm">Portfolio View</a>
+                    </td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="5" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No clients found.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}

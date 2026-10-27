@@ -1,0 +1,102 @@
+{% extends "base.html" %}
+
+{% block title %}Plan {{ plan.plan_id[:8] }}{% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+    <a href="/ui/rebalance" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;">&larr; Back to Plans</a>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 0.5rem;">
+        <div>
+            <h1>Plan Execution <span style="font-family: var(--font-mono); font-size: 1.1rem; color: var(--primary);">[{{ plan.plan_id }}]</span></h1>
+            <p style="color: var(--text-muted);">
+                Status: <span class="tag {% if plan.status == 'executed' %}tag-success{% elif plan.status == 'confirmed' %}tag-info{% elif plan.status == 'expired' %}tag-danger{% else %}tag-warning{% endif %}">{{ plan.status }}</span> &bull; 
+                Expires: {{ plan.expires_at[:19] }} UTC
+            </p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Plan Orders & Manual Execution Fills (D1)</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Side</th>
+                <th>Symbol</th>
+                <th class="num">Target Qty</th>
+                <th class="num">Remaining</th>
+                <th class="num">Est Price</th>
+                <th>Status</th>
+                <th class="num">Filled Qty</th>
+                <th class="num">Filled Price</th>
+                <th style="text-align: right;">Manual Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for o in plan.orders %}
+            <tr>
+                <td>
+                    <span class="tag {% if o.side == 'SELL' %}tag-warning{% else %}tag-success{% endif %}">
+                        {{ o.side }}
+                    </span>
+                </td>
+                <td><strong>{{ o.symbol }}</strong></td>
+                <td class="num">{{ o.quantity }}</td>
+                <td class="num">{{ o.remaining_quantity }}</td>
+                <td class="num">{{ o.estimated_price }}</td>
+                <td>
+                    <span class="tag {% if o.status == 'filled' %}tag-success{% elif o.status == 'partial' %}tag-warning{% elif o.status == 'cancelled' %}tag-danger{% else %}tag-info{% endif %}">
+                        {{ o.status }}
+                    </span>
+                </td>
+                <td class="num">{{ o.filled_quantity }}</td>
+                <td class="num">{{ o.filled_price }}</td>
+                <td style="text-align: right;">
+                    {% if o.status in ['pending', 'partial'] %}
+                    <details style="display: inline-block; text-align: left;">
+                        <summary class="btn btn-sm">Record Fill</summary>
+                        <div style="position: absolute; right: 2rem; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 1rem; width: 320px; z-index: 10; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+                            <h4 style="margin-bottom: 0.5rem;">Fill {{ o.side }} {{ o.symbol }}</h4>
+                            <form method="POST" action="/ui/actions/order/fill">
+                                <input type="hidden" name="plan_id" value="{{ plan.plan_id }}">
+                                <input type="hidden" name="order_id" value="{{ o.order_id }}">
+                                <div class="form-group">
+                                    <label>Fill Quantity</label>
+                                    <input type="number" step="any" name="quantity" value="{{ o.remaining_quantity }}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Fill Unit Price</label>
+                                    <input type="number" step="any" name="price" value="{{ o.estimated_price }}" required>
+                                </div>
+                                <div class="form-group">
+                                    <label>Actual Broker Fee</label>
+                                    <input type="number" step="any" name="fee" value="0.00" required>
+                                </div>
+                                <div style="display: flex; gap: 0.5rem;">
+                                    <button type="submit" class="btn btn-sm">Submit Fill</button>
+                                </div>
+                            </form>
+                            <hr style="border: 0; border-top: 1px solid var(--border); margin: 0.75rem 0;">
+                            <form method="POST" action="/ui/actions/order/cancel">
+                                <input type="hidden" name="plan_id" value="{{ plan.plan_id }}">
+                                <input type="hidden" name="order_id" value="{{ o.order_id }}">
+                                <div class="form-group">
+                                    <label>Cancellation Reason</label>
+                                    <input type="text" name="reason" placeholder="Market moved, liquidity issue" required>
+                                </div>
+                                <button type="submit" class="btn btn-outline btn-sm" style="color: var(--danger);">Cancel Order</button>
+                            </form>
+                        </div>
+                    </details>
+                    {% else %}
+                    <span style="color: var(--text-muted); font-size: 0.8rem;">Completed</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

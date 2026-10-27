@@ -1,0 +1,154 @@
+{% extends "base.html" %}
+
+{% block title %}{{ client.display_name }} ({{ client.code }}){% endblock %}
+
+{% block content %}
+<div style="margin-bottom: 1.5rem;">
+    <a href="/ui/clients" style="color: var(--text-muted); text-decoration: none; font-size: 0.9rem;">&larr; Back to Clients</a>
+    <div style="display: flex; justify-content: space-between; align-items: flex-end; margin-top: 0.5rem;">
+        <div>
+            <h1>{{ client.display_name }} <span style="color: var(--primary); font-size: 1.1rem; font-family: var(--font-mono);">[{{ client.code }}]</span></h1>
+            <p style="color: var(--text-muted);">Base Currency: <strong>{{ client.base_currency }}</strong> &bull; As of: {{ positions.as_of }}</p>
+        </div>
+        <div style="display: flex; gap: 0.5rem;">
+            <a href="/ui/mandates" class="btn btn-outline btn-sm">Mandate & Drift</a>
+            <a href="/ui/rebalance" class="btn btn-sm">Plan Rebalance</a>
+        </div>
+    </div>
+</div>
+
+<div class="grid-3" style="margin-bottom: 2rem;">
+    <div class="stat-card">
+        <div class="stat-label">Total Portfolio Value</div>
+        <div class="stat-val" style="color: var(--primary);">{{ positions.total_value }} {{ client.base_currency }}</div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Invested: {{ positions.invested_value }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Available Free Cash</div>
+        <div class="stat-val">{{ positions.cash }} {{ client.base_currency }}</div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Account: {{ positions.account_code }}</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Time-Weighted Return (TWR)</div>
+        <div class="stat-val" style="color: {% if perf and perf.twr|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+            {% if perf %}{{ "%.2f"|format(perf.twr|float * 100) }}%{% else %}N/A{% endif %}
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">
+            {% if perf %}Annualized: {{ "%.2f"|format(perf.annualized|float * 100) }}% &bull; Max DD: {{ "%.2f"|format(perf.max_drawdown|float * 100) }}%{% else %}No return history{% endif %}
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Active Holdings & Positions (Rebuilt from Transactions)</h2>
+        <div>
+            {% if positions.max_carried_days > 0 %}
+            <span class="tag tag-warning">Carried-forward up to {{ positions.max_carried_days }} days</span>
+            {% else %}
+            <span class="tag tag-success">Prices Up-to-date</span>
+            {% endif %}
+        </div>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Symbol</th>
+                <th>Name</th>
+                <th class="num">Quantity</th>
+                <th class="num">Avg Cost</th>
+                <th class="num">Current Price</th>
+                <th class="num">Market Value ({{ client.base_currency }})</th>
+                <th class="num">Unrealized P&L</th>
+                <th class="num">Weight</th>
+                <th>Price Status</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for p in positions.positions %}
+            <tr>
+                <td><strong>{{ p.symbol }}</strong></td>
+                <td>{{ p.name }}</td>
+                <td class="num">{{ p.quantity }}</td>
+                <td class="num">{{ p.avg_cost }}</td>
+                <td class="num">{{ p.current_price }}</td>
+                <td class="num" style="font-weight: 600;">{{ p.market_value }}</td>
+                <td class="num" style="color: {% if p.unrealized_gain|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+                    {{ p.unrealized_gain }}
+                </td>
+                <td class="num">{{ "%.2f"|format(p.weight|float * 100) }}%</td>
+                <td>
+                    {% if p.carried_days > 0 %}
+                    <span class="tag tag-warning">carried {{ p.carried_days }}d</span>
+                    {% else %}
+                    <span class="tag tag-success">fresh</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="9" style="text-align: center; color: var(--text-muted); padding: 2rem;">No open positions. Portfolio is 100% Cash.</td>
+            </tr>
+            {% endfor %}
+            <tr style="background-color: rgba(255, 255, 255, 0.03); font-weight: 600;">
+                <td colspan="5"><strong>FREE CASH ({{ client.base_currency }})</strong></td>
+                <td class="num">{{ positions.cash }}</td>
+                <td class="num">0.00</td>
+                <td class="num">
+                    {% if positions.total_value|float > 0 %}
+                    {{ "%.2f"|format((positions.cash|float / positions.total_value|float) * 100) }}%
+                    {% else %}100.00%{% endif %}
+                </td>
+                <td><span class="tag tag-info">settled</span></td>
+            </tr>
+        </tbody>
+    </table>
+</div>
+
+{% if perf and perf.points %}
+<div class="card">
+    <div class="card-header">
+        <h2>Daily TWR Return Stream (Start-of-Day Convention)</h2>
+        <span style="font-size: 0.85rem; color: var(--text-muted);">r(D) = close(D) / (close(D-1) + external_flows(D)) - 1</span>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Date</th>
+                <th class="num">Close Value</th>
+                <th class="num">Start Value</th>
+                <th class="num">External Flow</th>
+                <th class="num">Daily Return</th>
+                <th class="num">Cumulative TWR</th>
+                <th>Carried Days</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for pt in perf.points[-15:]|reverse %}
+            <tr>
+                <td>{{ pt.day }}</td>
+                <td class="num">{{ pt.close_value }}</td>
+                <td class="num">{{ pt.start_value }}</td>
+                <td class="num" style="color: {% if pt.external_flow|float > 0 %}var(--success){% elif pt.external_flow|float < 0 %}var(--warning){% else %}var(--text-muted){% endif %};">
+                    {{ pt.external_flow }}
+                </td>
+                <td class="num" style="color: {% if pt.daily_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+                    {{ "%.4f"|format(pt.daily_return|float * 100) }}%
+                </td>
+                <td class="num" style="font-weight: 600; color: {% if pt.cumulative_return|float >= 0 %}var(--success){% else %}var(--danger){% endif %};">
+                    {{ "%.4f"|format(pt.cumulative_return|float * 100) }}%
+                </td>
+                <td>
+                    {% if pt.carried_days > 0 %}
+                    <span class="tag tag-warning">{{ pt.carried_days }}d</span>
+                    {% else %}
+                    <span class="tag tag-success">0d</span>
+                    {% endif %}
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,80 @@
+{% extends "base.html" %}
+
+{% block title %}Audit Trail & Cryptographic Verification{% endblock %}
+
+{% block content %}
+<div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
+    <div>
+        <h1>Audit Trail & Hash-Chain Verification</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Append-only journal protected by SQLite triggers (no UPDATE/DELETE) and SHA-256 chain (D10)</p>
+    </div>
+    <div>
+        <a href="/ui/audit" class="btn btn-outline btn-sm">Refresh Chain</a>
+    </div>
+</div>
+
+<div class="card" style="border-left: 4px solid {% if verification.valid %}var(--success){% else %}var(--danger){% endif %};">
+    <div style="display: flex; justify-content: space-between; align-items: center;">
+        <div>
+            <h2 style="color: {% if verification.valid %}var(--success){% else %}var(--danger){% endif %};">
+                {% if verification.valid %}
+                &check; Cryptographic Integrity Confirmed
+                {% else %}
+                &cross; Chain Broken at Row #{{ verification.broken_at }}
+                {% endif %}
+            </h2>
+            <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem;">
+                Total Verified Rows: <strong>{{ verification.rows }}</strong> &bull; Chain Head: <code style="font-family: var(--font-mono);">{{ verification.head[:20] }}...</code>
+            </p>
+        </div>
+        <div>
+            <span class="tag {% if verification.valid %}tag-success{% else %}tag-danger{% endif %}" style="font-size: 0.9rem; padding: 0.4rem 0.8rem;">
+                {% if verification.valid %}CHAIN VALID{% else %}TAMPER DETECTED{% endif %}
+            </span>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Audit Log Stream (Latest 100 Events)</h2>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Timestamp (UTC)</th>
+                <th>Actor</th>
+                <th>Entity</th>
+                <th>Action</th>
+                <th>Payload JSON</th>
+                <th>Row Hash (SHA-256)</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for row in rows %}
+            <tr>
+                <td style="font-family: var(--font-mono);">#{{ row.id }}</td>
+                <td style="font-family: var(--font-mono); font-size: 0.8rem;">{{ row.at }}</td>
+                <td><span class="tag tag-info">{{ row.actor }}</span></td>
+                <td>{{ row.entity_type }}</td>
+                <td><strong>{{ row.action }}</strong></td>
+                <td>
+                    <details>
+                        <summary style="cursor: pointer; color: var(--primary); font-size: 0.8rem;">View Payload</summary>
+                        <pre class="code-block" style="margin-top: 0.4rem; padding: 0.5rem; font-size: 0.75rem;">{{ row.payload | tojson(indent=2) }}</pre>
+                    </details>
+                </td>
+                <td style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">
+                    {{ row.row_hash[:16] }}...
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="7" style="text-align: center; color: var(--text-muted); padding: 2rem;">No audit records found.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endblock %}

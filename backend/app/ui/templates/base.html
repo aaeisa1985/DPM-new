@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}DPM Platform{% endblock %} - Discretionary Portfolio Manager</title>
+    <style>
+        :root {
+            --bg: #0f172a;
+            --surface: #1e293b;
+            --surface-hover: #334155;
+            --border: #334155;
+            --text: #f8fafc;
+            --text-muted: #94a3b8;
+            --primary: #38bdf8;
+            --primary-hover: #0ea5e9;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+        }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            background-color: var(--bg);
+            color: var(--text);
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            line-height: 1.5;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            background-color: var(--surface);
+            border-bottom: 1px solid var(--border);
+            padding: 0.75rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .logo {
+            font-weight: 700;
+            font-size: 1.25rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+            color: var(--primary);
+            text-decoration: none;
+        }
+        .badge-v {
+            background: #0369a1;
+            color: #e0f2fe;
+            font-size: 0.75rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 4px;
+            font-family: var(--font-mono);
+        }
+        nav {
+            display: flex;
+            gap: 1.25rem;
+        }
+        nav a {
+            color: var(--text-muted);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            padding: 0.4rem 0.6rem;
+            border-radius: 6px;
+            transition: all 0.2s;
+        }
+        nav a:hover, nav a.active {
+            color: var(--text);
+            background-color: var(--surface-hover);
+        }
+        .status-dot {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background-color: var(--success);
+            display: inline-block;
+            margin-right: 0.3rem;
+        }
+        main {
+            flex: 1;
+            padding: 2rem;
+            max-width: 1300px;
+            margin: 0 auto;
+            width: 100%;
+        }
+        .card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 1rem;
+            border-bottom: 1px solid var(--border);
+            padding-bottom: 0.75rem;
+        }
+        h1, h2, h3 { font-weight: 600; color: var(--text); }
+        h1 { font-size: 1.75rem; margin-bottom: 1.25rem; }
+        h2 { font-size: 1.25rem; }
+        .grid-3 { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1.25rem; }
+        .grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 1.25rem; }
+        .stat-card {
+            background: var(--surface);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 1.25rem;
+        }
+        .stat-label { color: var(--text-muted); font-size: 0.85rem; text-transform: uppercase; letter-spacing: 0.5px; }
+        .stat-val { font-size: 1.8rem; font-weight: 700; margin-top: 0.25rem; font-family: var(--font-mono); }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.9rem;
+            margin-top: 0.5rem;
+        }
+        th, td {
+            padding: 0.75rem 1rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border);
+        }
+        th {
+            background: #1e293b;
+            color: var(--text-muted);
+            font-weight: 600;
+            text-transform: uppercase;
+            font-size: 0.75rem;
+            letter-spacing: 0.5px;
+        }
+        tr:hover { background-color: rgba(255, 255, 255, 0.02); }
+        .num { text-align: right; font-family: var(--font-mono); }
+        .tag {
+            display: inline-block;
+            padding: 0.2rem 0.5rem;
+            border-radius: 4px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            font-family: var(--font-mono);
+        }
+        .tag-success { background: rgba(16, 185, 129, 0.2); color: #34d399; }
+        .tag-warning { background: rgba(245, 158, 11, 0.2); color: #fbbf24; }
+        .tag-danger { background: rgba(239, 68, 68, 0.2); color: #f87171; }
+        .tag-info { background: rgba(56, 189, 248, 0.2); color: #38bdf8; }
+        .btn {
+            background: var(--primary);
+            color: #0f172a;
+            border: none;
+            padding: 0.5rem 1rem;
+            border-radius: 6px;
+            font-weight: 600;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+        .btn:hover { background: var(--primary-hover); }
+        .btn-outline {
+            background: transparent;
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-outline:hover { background: var(--surface-hover); }
+        .btn-sm { padding: 0.25rem 0.6rem; font-size: 0.8rem; }
+        .form-group { margin-bottom: 1rem; }
+        label { display: block; margin-bottom: 0.4rem; color: var(--text-muted); font-size: 0.85rem; }
+        input, select, textarea {
+            width: 100%;
+            background: #0f172a;
+            border: 1px solid var(--border);
+            color: var(--text);
+            padding: 0.6rem 0.8rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+        input:focus, select:focus, textarea:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+        footer {
+            border-top: 1px solid var(--border);
+            padding: 1rem 2rem;
+            color: var(--text-muted);
+            font-size: 0.8rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .code-block {
+            background: #090d16;
+            padding: 1rem;
+            border-radius: 6px;
+            font-family: var(--font-mono);
+            font-size: 0.85rem;
+            overflow-x: auto;
+            border: 1px solid var(--border);
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <a href="/ui/dashboard" class="logo">
+            <span>DPM</span>
+            <span class="badge-v">v1.1</span>
+        </a>
+        <nav>
+            <a href="/ui/dashboard" class="{% if active_tab == 'dashboard' %}active{% endif %}">Dashboard</a>
+            <a href="/ui/clients" class="{% if active_tab == 'clients' %}active{% endif %}">Clients & Portfolios</a>
+            <a href="/ui/mandates" class="{% if active_tab == 'mandates' %}active{% endif %}">Mandates & Drift</a>
+            <a href="/ui/rebalance" class="{% if active_tab == 'rebalance' %}active{% endif %}">Rebalance Plans</a>
+            <a href="/ui/data" class="{% if active_tab == 'data' %}active{% endif %}">Data & Import</a>
+            <a href="/ui/audit" class="{% if active_tab == 'audit' %}active{% endif %}">Audit Trail</a>
+        </nav>
+        <div style="font-size: 0.85rem; color: var(--text-muted); font-family: var(--font-mono);">
+            <span class="status-dot"></span>Local Host: 127.0.0.1
+        </div>
+    </header>
+
+    <main>
+        {% block content %}{% endblock %}
+    </main>
+
+    <footer>
+        <div>DPM Core Engine &mdash; Discretionary Portfolio Manager</div>
+        <div>Offline Capable &bull; SQLite WAL &bull; Hash-Chained Audit</div>
+    </footer>
+</body>
+</html>

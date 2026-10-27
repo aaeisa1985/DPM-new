@@ -1,0 +1,147 @@
+{% extends "base.html" %}
+
+{% block title %}Dashboard{% endblock %}
+
+{% block content %}
+<div class="card-header" style="border: none; padding: 0; margin-bottom: 1.5rem;">
+    <div>
+        <h1>Portfolio Overview</h1>
+        <p style="color: var(--text-muted); font-size: 0.95rem;">Single-Operator Portfolio Management Workspace</p>
+    </div>
+    <div style="display: flex; gap: 0.75rem;">
+        <a href="/ui/data" class="btn btn-outline btn-sm">Import CSV</a>
+        <a href="/ui/rebalance" class="btn btn-sm">Rebalance Workspace</a>
+    </div>
+</div>
+
+<div class="grid-3" style="margin-bottom: 2rem;">
+    <div class="stat-card">
+        <div class="stat-label">Active Clients</div>
+        <div class="stat-val" style="color: var(--primary);">{{ clients|length }}</div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">Managing segregated accounts</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Mandates & Portfolios</div>
+        <div class="stat-val">{{ mandates|length }}</div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">1:1 Account Binding</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Audit Log Status</div>
+        <div class="stat-val" style="color: {% if audit_valid %}var(--success){% else %}var(--danger){% endif %}; font-size: 1.3rem; display: flex; align-items: center; gap: 0.5rem;">
+            {% if audit_valid %}
+            <span>&check; VALID</span>
+            {% else %}
+            <span>&cross; TAMPER DETECTED</span>
+            {% endif %}
+        </div>
+        <div style="color: var(--text-muted); font-size: 0.8rem; margin-top: 0.4rem;">{{ audit_rows }} hash-chained records</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-header">
+        <h2>Client Portfolios</h2>
+        <a href="/ui/clients" class="btn btn-outline btn-sm">View All</a>
+    </div>
+    <table>
+        <thead>
+            <tr>
+                <th>Code</th>
+                <th>Display Name</th>
+                <th>Base Currency</th>
+                <th class="num">Accounts</th>
+                <th class="num">Portfolio Value</th>
+                <th style="text-align: right;">Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for c in clients %}
+            <tr>
+                <td><strong>{{ c.code }}</strong></td>
+                <td>{{ c.display_name }}</td>
+                <td><span class="tag tag-info">{{ c.base_currency }}</span></td>
+                <td class="num">{{ c.accounts_count }}</td>
+                <td class="num" style="font-weight: 600;">{{ c.total_value }}</td>
+                <td style="text-align: right;">
+                    <a href="/ui/client/{{ c.id }}" class="btn btn-outline btn-sm">Positions & TWR</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="6" style="text-align: center; color: var(--text-muted); padding: 2rem;">
+                    No clients created yet. Start by <a href="/ui/clients" style="color: var(--primary);">adding a client</a> or <a href="/ui/data" style="color: var(--primary);">importing transactions</a>.
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+<div class="grid-2">
+    <div class="card">
+        <div class="card-header">
+            <h2>Recent Rebalance Plans</h2>
+            <a href="/ui/rebalance" class="btn btn-outline btn-sm">All Plans</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Created</th>
+                    <th>Status</th>
+                    <th class="num">Cash Target</th>
+                    <th class="num">Cash After</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for p in plans[:5] %}
+                <tr>
+                    <td>{{ p.created_at[:16] }}</td>
+                    <td>
+                        <span class="tag {% if p.status == 'executed' %}tag-success{% elif p.status == 'confirmed' %}tag-info{% elif p.status == 'expired' %}tag-danger{% else %}tag-warning{% endif %}">
+                            {{ p.status }}
+                        </span>
+                    </td>
+                    <td class="num">{{ p.cash_target }}</td>
+                    <td class="num">{{ p.cash_after }}</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">No rebalance plans recorded.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <div class="card-header">
+            <h2>Recent Audit Entries</h2>
+            <a href="/ui/audit" class="btn btn-outline btn-sm">View Audit Chain</a>
+        </div>
+        <table>
+            <thead>
+                <tr>
+                    <th>Time (UTC)</th>
+                    <th>Entity</th>
+                    <th>Action</th>
+                    <th>Prev Hash</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for a in recent_audit[:5] %}
+                <tr>
+                    <td style="font-size: 0.8rem; font-family: var(--font-mono);">{{ a.at[11:19] }}</td>
+                    <td>{{ a.entity_type }}</td>
+                    <td><span class="tag tag-info">{{ a.action }}</span></td>
+                    <td style="font-family: var(--font-mono); font-size: 0.75rem; color: var(--text-muted);">{{ a.prev_hash[:12] }}...</td>
+                </tr>
+                {% else %}
+                <tr>
+                    <td colspan="4" style="text-align: center; color: var(--text-muted); padding: 1.5rem;">Audit log is currently empty.</td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+</div>
+{% endblock %}
