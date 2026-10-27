@@ -344,5 +344,21 @@ def test_eodhd_batch_guardrails_and_daily_sync_cache(test_db: Session, client_en
         # And get_live_price for eodhd security with force=True
         live_eod = get_live_price(db, gulf_sec, force=True)
         assert live_eod == Decimal("82.50")
+
+        # 4. Morning sync before market open: df.index[-1] is yesterday (D-1).
+        # Verify PriceHistory is recorded under D-1 (bar_date), NOT shifted to date.today()!
+        yesterday = date(2026, 1, 20)
+
+        def fake_morning_download(tickers, **kwargs):
+            idx = pd.to_datetime([date(2026, 1, 19), yesterday])
+            return pd.DataFrame({t: [99.0, 101.50] for t in tickers}, index=idx)
+
+        fake_yf.download = fake_morning_download  # type: ignore[attr-defined]
+        res_morning = sync_daily_prices(db, symbols=["SPY"], force=True)
+        db.commit()
+        assert res_morning["bar_dates"]["SPY"] == yesterday.isoformat()
+        hist_row = db.get(PriceHistory, (spy.id, yesterday))
+        assert hist_row is not None
+        assert hist_row.close == Decimal("101.50")
     finally:
         settings.eodhd_api_key = old_key

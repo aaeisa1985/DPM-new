@@ -200,40 +200,65 @@ def _is_us_or_crypto_or_yahoo_ticker(ticker: str, currency: str = "USD", asset_c
     return False
 
 
-def fetch_yahoo_batch(tickers: list[str]) -> dict[str, Decimal]:
-    """Fetch closing/latest prices for multiple tickers in a single Yahoo Finance batch request."""
+def _extract_bar_date(index_val: object) -> date:
+    """Extract the true calendar date of a market data bar (never blindly assuming date.today())."""
+    if hasattr(index_val, "date") and callable(index_val.date):
+        return index_val.date()  # type: ignore[no-any-return]
+    if isinstance(index_val, date):
+        return index_val
+    try:
+        return date.fromisoformat(str(index_val)[:10])
+    except Exception:
+        return date.today()
+
+
+def fetch_yahoo_batch_with_dates(tickers: list[str]) -> dict[str, tuple[Decimal, date]]:
+    """Fetch closing prices and their exact bar dates (`df.index`) for multiple tickers in one batch."""
     cleaned = [t.strip().upper() for t in tickers if t.strip()]
     if not cleaned:
         return {}
     import yfinance as yf  # type: ignore
 
-    results: dict[str, Decimal] = {}
+    results: dict[str, tuple[Decimal, date]] = {}
     df = yf.download(cleaned, period="7d", progress=False, auto_adjust=False, threads=True)
     if df is None or len(df) == 0:
         return results
 
     close_df = df["Close"] if "Close" in df else df
-    if len(cleaned) == 1:
+    if len(cleaned) == 1 and not hasattr(close_df, "columns"):
         symbol = cleaned[0]
         series = close_df.dropna()
         if len(series) > 0:
             val = float(series.iloc[-1].item() if hasattr(series.iloc[-1], "item") else series.iloc[-1])
             if val > 0:
-                results[symbol] = D(f"{val:.4f}")
+                bar_date = _extract_bar_date(series.index[-1])
+                results[symbol] = (D(f"{val:.4f}"), bar_date)
     else:
-        ffilled = close_df.ffill()
-        last_row = ffilled.iloc[-1]
         for symbol in cleaned:
-            if symbol in last_row:
-                raw = last_row[symbol]
+            if hasattr(close_df, "columns") and symbol in close_df.columns:
+                series = close_df[symbol].dropna()
+            elif len(cleaned) == 1:
+                series = close_df.dropna()
+            else:
+                continue
+            if len(series) > 0:
+                raw = series.iloc[-1]
                 val = float(raw.item() if hasattr(raw, "item") else raw)
-                if val == val and val > 0:  # not NaN and positive
-                    results[symbol] = D(f"{val:.4f}")
+                if val == val and val > 0:
+                    bar_date = _extract_bar_date(series.index[-1])
+                    results[symbol] = (D(f"{val:.4f}"), bar_date)
     return results
 
 
-def fetch_eodhd_batch(tickers: list[str], api_key: str | None = None) -> dict[str, Decimal]:
-    """Fetch multiple Gulf/non-US tickers in a SINGLE EODHD API request.
+def fetch_yahoo_batch(tickers: list[str]) -> dict[str, Decimal]:
+    """Fetch closing/latest prices for multiple tickers in a single Yahoo Finance batch request."""
+    return {k: v[0] for k, v in fetch_yahoo_batch_with_dates(tickers).items()}
+
+
+def fetch_eodhd_batch_with_dates(
+    tickers: list[str], api_key: str | None = None
+) -> dict[str, tuple[Decimal, date]]:
+    """Fetch multiple Gulf/non-US tickers with their actual quote dates in a SINGLE EODHD API request.
 
     Strictly refuses US stocks, Crypto, or FX tickers (those must use Yahoo Finance).
     """
@@ -271,23 +296,41 @@ def fetch_eodhd_batch(tickers: list[str], api_key: str | None = None) -> dict[st
         )
     payload = resp.json()
     items = payload if isinstance(payload, list) else [payload]
-    results: dict[str, Decimal] = {}
+    results: dict[str, tuple[Decimal, date]] = {}
     for item in items:
         if not isinstance(item, dict):
             continue
         code = str(item.get("code", "")).upper()
         raw_close = item.get("close") or item.get("previousClose")
+        bar_date = date.today()
+        if item.get("date"):
+            bar_date = _extract_bar_date(item["date"])
+        elif item.get("timestamp") and str(item["timestamp"]).isdigit():
+            bar_date = datetime.fromtimestamp(int(item["timestamp"]), tz=UTC).date()
         try:
             if raw_close is not None and str(raw_close) != "NA":
                 price_dec = D(str(raw_close))
                 if price_dec > 0:
-                    results[code] = price_dec
+                    results[code] = (price_dec, bar_date)
         except Exception:
             continue
     return results
 
 
+def fetch_eodhd_batch(tickers: list[str], api_key: str | None = None) -> dict[str, Decimal]:
+    """Fetch multiple Gulf/non-US tickers in a SINGLE EODHD API request."""
+    return {k: v[0] for k, v in fetch_eodhd_batch_with_dates(tickers, api_key=api_key).items()}
+
+
 def get_live_price(db: Session, security: Security, force: bool = False) -> Decimal:
+    """Return price for ``security``.
+
+    - When ``force=False`` (default EOD/dashboard workflow), returns a fresh ``PriceCache`` hit
+      or today's ``PriceHistory`` row if already synced.
+    - When ``force=True`` (required on the order execution path per Spec 5.2), bypasses both
+      ``PriceCache`` and ``PriceHistory`` to query the live provider directly, recording any
+      historical bar under its true bar date (`df.index[-1]`).
+    """
     cached = _cache_row(db, security.id)
     if cached and not force and _is_fresh(cached.fetched_at):
         return D(cached.price)
@@ -326,13 +369,14 @@ def get_live_price(db: Session, security: Security, force: bool = False) -> Deci
                 f"EODHD is restricted to Gulf/regional equities; use 'yahoo' for {security.symbol}.",
                 symbol=security.symbol,
             )
-        batch = fetch_eodhd_batch([ticker_sym])
+        batch = fetch_eodhd_batch_with_dates([ticker_sym])
         if ticker_sym not in batch:
             raise PriceUnavailableError(
                 f"EODHD returned no price for {security.symbol} ({ticker_sym}).",
                 symbol=security.symbol,
             )
-        return _save_daily_cache(db, security, batch[ticker_sym], source="eodhd", on_date=today)
+        raw_eod, eod_date = batch[ticker_sym]
+        return _save_daily_cache(db, security, raw_eod, source="eodhd", on_date=eod_date)
 
     if security.price_source != "yahoo":
         raise PriceUnavailableError(
@@ -340,17 +384,23 @@ def get_live_price(db: Session, security: Security, force: bool = False) -> Deci
             symbol=security.symbol,
         )
 
+    bar_date = today
     try:  # Lazy import: yfinance/pandas are never imported at startup.
         import yfinance as yf  # type: ignore
 
         ticker = yf.Ticker(security.yahoo_ticker or security.symbol)
         price: float | None = None
         try:
-            price = float(ticker.fast_info.last_price)
-        except Exception:
             hist = ticker.history(period="5d")
             if len(hist):
-                price = float(hist["Close"].dropna().iloc[-1])
+                clean_close = hist["Close"].dropna()
+                if len(clean_close):
+                    price = float(clean_close.iloc[-1])
+                    bar_date = _extract_bar_date(clean_close.index[-1])
+        except Exception:
+            price = None
+        if price is None or price <= 0:
+            price = float(ticker.fast_info.last_price)
         if price is None or price <= 0:
             raise ValueError("provider returned no price")
         raw_val = D(str(price))
@@ -359,7 +409,7 @@ def get_live_price(db: Session, security: Security, force: bool = False) -> Deci
             f"Live price unavailable for {security.symbol}: {exc}", symbol=security.symbol
         ) from exc
 
-    return _save_daily_cache(db, security, raw_val, source="yahoo", on_date=today)
+    return _save_daily_cache(db, security, raw_val, source="yahoo", on_date=bar_date)
 
 
 def sync_daily_prices(
@@ -372,7 +422,9 @@ def sync_daily_prices(
 
     - Serves already-fetched prices for ``on_date`` (default today) directly from SQLite (`price_history`)
       unless ``force=True``.
-    - Groups all Yahoo-eligible securities into ONE single `yf.download` batch call.
+    - Groups all Yahoo-eligible securities into ONE single `yf.download` batch call and stores each
+      security's close under its **actual bar date** (`df.index`), so morning syncs before market open
+      idempotently record yesterday's close under yesterday's date without shifting TWR flow windows.
     - Groups all EODHD Gulf securities into ONE single EODHD batch call (never calling EODHD for US/Crypto).
     """
     target_date = on_date or date.today()
@@ -385,6 +437,7 @@ def sync_daily_prices(
     from_cache: dict[str, str] = {}
     fetched_yahoo: dict[str, str] = {}
     fetched_eodhd: dict[str, str] = {}
+    bar_dates: dict[str, str] = {}
     errors: dict[str, str] = {}
 
     yahoo_map: dict[str, Security] = {}
@@ -397,6 +450,7 @@ def sync_daily_prices(
             existing = db.get(PriceHistory, (sec.id, target_date))
             if existing is not None:
                 from_cache[sec.symbol] = str(D(existing.close))
+                bar_dates[sec.symbol] = existing.price_date.isoformat()
                 continue
 
         provider_ticker = (sec.yahoo_ticker or sec.symbol).strip().upper()
@@ -409,13 +463,14 @@ def sync_daily_prices(
 
     if yahoo_map:
         try:
-            y_prices = fetch_yahoo_batch(list(yahoo_map.keys()))
+            y_prices = fetch_yahoo_batch_with_dates(list(yahoo_map.keys()))
             for ticker_key, sec in yahoo_map.items():
                 if ticker_key in y_prices:
-                    saved = _save_daily_cache(
-                        db, sec, y_prices[ticker_key], source="yahoo", on_date=target_date
-                    )
+                    raw_price, bar_date = y_prices[ticker_key]
+                    effective_date = on_date if on_date is not None else bar_date
+                    saved = _save_daily_cache(db, sec, raw_price, source="yahoo", on_date=effective_date)
                     fetched_yahoo[sec.symbol] = str(saved)
+                    bar_dates[sec.symbol] = effective_date.isoformat()
                 else:
                     errors[sec.symbol] = f"No price returned from Yahoo Finance for '{ticker_key}'"
         except Exception as exc:
@@ -424,13 +479,14 @@ def sync_daily_prices(
 
     if eodhd_map:
         try:
-            e_prices = fetch_eodhd_batch(list(eodhd_map.keys()))
+            e_prices = fetch_eodhd_batch_with_dates(list(eodhd_map.keys()))
             for ticker_key, sec in eodhd_map.items():
                 if ticker_key in e_prices:
-                    saved = _save_daily_cache(
-                        db, sec, e_prices[ticker_key], source="eodhd", on_date=target_date
-                    )
+                    raw_price, bar_date = e_prices[ticker_key]
+                    effective_date = on_date if on_date is not None else bar_date
+                    saved = _save_daily_cache(db, sec, raw_price, source="eodhd", on_date=effective_date)
                     fetched_eodhd[sec.symbol] = str(saved)
+                    bar_dates[sec.symbol] = effective_date.isoformat()
                 else:
                     errors[sec.symbol] = f"No price returned from EODHD for '{ticker_key}'"
         except Exception as exc:
@@ -445,6 +501,7 @@ def sync_daily_prices(
         "from_cache": from_cache,
         "fetched_yahoo": fetched_yahoo,
         "fetched_eodhd": fetched_eodhd,
+        "bar_dates": bar_dates,
         "errors": errors,
     }
 
