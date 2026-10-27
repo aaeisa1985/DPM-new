@@ -322,6 +322,90 @@ def fetch_eodhd_batch(tickers: list[str], api_key: str | None = None) -> dict[st
     return {k: v[0] for k, v in fetch_eodhd_batch_with_dates(tickers, api_key=api_key).items()}
 
 
+def _to_tv_ticker(raw: str) -> str:
+    """Normalize a symbol to TradingView `EXCHANGE:SYMBOL` format (e.g. `FAB.ADX` -> `ADX:FAB`)."""
+    s = raw.strip().upper()
+    if ":" in s:
+        return s
+    if "." in s:
+        sym, ext = s.rsplit(".", 1)
+        ext_map = {
+            "ADX": "ADX",
+            "AD": "ADX",
+            "DFM": "DFM",
+            "AE": "DFM",
+            "SR": "TADAWUL",
+            "SAU": "TADAWUL",
+            "TADAWUL": "TADAWUL",
+            "KW": "KSE",
+            "KSE": "KSE",
+            "QA": "QSE",
+            "QSE": "QSE",
+            "EGX": "EGX",
+            "CA": "EGX",
+        }
+        tv_ex = ext_map.get(ext, ext)
+        return f"{tv_ex}:{sym}"
+    return s
+
+
+def fetch_tradingview_batch_with_dates(tickers: list[str]) -> dict[str, tuple[Decimal, date]]:
+    """Fetch multiple tickers (including ADX, DFM, TADAWUL, KSE, QSE) in ONE TradingView scan request.
+
+    Uses TradingView's official scanner JSON API (`https://scanner.tradingview.com/global/scan`)
+    via `httpx` with zero extra dependencies and extracts each symbol's true bar date from `time`.
+    """
+    cleaned = [t.strip().upper() for t in tickers if t.strip()]
+    if not cleaned:
+        return {}
+
+    import httpx
+
+    tv_to_orig: dict[str, list[str]] = {}
+    for orig in cleaned:
+        tv_sym = _to_tv_ticker(orig)
+        tv_to_orig.setdefault(tv_sym, []).append(orig)
+
+    payload = {
+        "symbols": {"tickers": list(tv_to_orig.keys())},
+        "columns": ["name", "close", "time", "currency", "exchange"],
+    }
+    resp = httpx.post("https://scanner.tradingview.com/global/scan", json=payload, timeout=15.0)
+    if resp.status_code != 200:
+        raise PriceUnavailableError(
+            f"TradingView batch scan failed with HTTP {resp.status_code}: {resp.text[:200]}"
+        )
+    data = resp.json()
+    rows = data.get("data", []) if isinstance(data, dict) else []
+    results: dict[str, tuple[Decimal, date]] = {}
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        tv_key = str(row.get("s", "")).upper()
+        cols = row.get("d", [])
+        if not isinstance(cols, list) or len(cols) < 2:
+            continue
+        raw_close = cols[1]
+        raw_time = cols[2] if len(cols) > 2 else None
+        bar_date = date.today()
+        if isinstance(raw_time, (int, float)) and raw_time > 0:
+            bar_date = datetime.fromtimestamp(int(raw_time), tz=UTC).date()
+        try:
+            if raw_close is not None:
+                price_dec = D(f"{float(raw_close):.4f}")
+                if price_dec > 0:
+                    for orig_key in tv_to_orig.get(tv_key, [tv_key]):
+                        results[orig_key] = (price_dec, bar_date)
+        except Exception:
+            continue
+    return results
+
+
+def fetch_tradingview_batch(tickers: list[str]) -> dict[str, Decimal]:
+    """Fetch closing/latest prices for multiple tickers in a single TradingView scan request."""
+    return {k: v[0] for k, v in fetch_tradingview_batch_with_dates(tickers).items()}
+
+
 def get_live_price(db: Session, security: Security, force: bool = False) -> Decimal:
     """Return price for ``security``.
 
@@ -361,6 +445,17 @@ def get_live_price(db: Session, security: Security, force: bool = False) -> Deci
             f"Live prices are disabled (DPM_DATA_PROVIDER=off) for {security.symbol}.",
             symbol=security.symbol,
         )
+
+    if security.price_source == "tradingview":
+        ticker_sym = (security.yahoo_ticker or security.symbol).strip().upper()
+        tv_batch = fetch_tradingview_batch_with_dates([ticker_sym])
+        if ticker_sym not in tv_batch:
+            raise PriceUnavailableError(
+                f"TradingView returned no price for {security.symbol} ({ticker_sym}).",
+                symbol=security.symbol,
+            )
+        raw_tv, tv_date = tv_batch[ticker_sym]
+        return _save_daily_cache(db, security, raw_tv, source="tradingview", on_date=tv_date)
 
     if security.price_source == "eodhd":
         ticker_sym = (security.yahoo_ticker or security.symbol).strip().upper()
@@ -436,11 +531,13 @@ def sync_daily_prices(
 
     from_cache: dict[str, str] = {}
     fetched_yahoo: dict[str, str] = {}
+    fetched_tradingview: dict[str, str] = {}
     fetched_eodhd: dict[str, str] = {}
     bar_dates: dict[str, str] = {}
     errors: dict[str, str] = {}
 
     yahoo_map: dict[str, Security] = {}
+    tv_map: dict[str, Security] = {}
     eodhd_map: dict[str, Security] = {}
 
     for sec in secs:
@@ -454,7 +551,13 @@ def sync_daily_prices(
                 continue
 
         provider_ticker = (sec.yahoo_ticker or sec.symbol).strip().upper()
-        if sec.price_source == "eodhd" and not _is_us_or_crypto_or_yahoo_ticker(
+        if (
+            sec.price_source == "tradingview"
+            or provider_ticker.startswith(("ADX:", "DFM:", "TADAWUL:", "KSE:", "QSE:"))
+            or provider_ticker.endswith((".ADX", ".AD", ".DFM"))
+        ):
+            tv_map[provider_ticker] = sec
+        elif sec.price_source == "eodhd" and not _is_us_or_crypto_or_yahoo_ticker(
             provider_ticker, sec.currency, sec.asset_class
         ):
             eodhd_map[provider_ticker] = sec
@@ -477,6 +580,24 @@ def sync_daily_prices(
             for sec in yahoo_map.values():
                 errors[sec.symbol] = str(exc)
 
+    if tv_map:
+        try:
+            tv_prices = fetch_tradingview_batch_with_dates(list(tv_map.keys()))
+            for ticker_key, sec in tv_map.items():
+                if ticker_key in tv_prices:
+                    raw_price, bar_date = tv_prices[ticker_key]
+                    effective_date = on_date if on_date is not None else bar_date
+                    saved = _save_daily_cache(
+                        db, sec, raw_price, source="tradingview", on_date=effective_date
+                    )
+                    fetched_tradingview[sec.symbol] = str(saved)
+                    bar_dates[sec.symbol] = effective_date.isoformat()
+                else:
+                    errors[sec.symbol] = f"No price returned from TradingView for '{ticker_key}'"
+        except Exception as exc:
+            for sec in tv_map.values():
+                errors[sec.symbol] = str(exc)
+
     if eodhd_map:
         try:
             e_prices = fetch_eodhd_batch_with_dates(list(eodhd_map.keys()))
@@ -497,9 +618,11 @@ def sync_daily_prices(
         "date": target_date.isoformat(),
         "from_cache_count": len(from_cache),
         "fetched_yahoo_count": len(fetched_yahoo),
+        "fetched_tradingview_count": len(fetched_tradingview),
         "fetched_eodhd_count": len(fetched_eodhd),
         "from_cache": from_cache,
         "fetched_yahoo": fetched_yahoo,
+        "fetched_tradingview": fetched_tradingview,
         "fetched_eodhd": fetched_eodhd,
         "bar_dates": bar_dates,
         "errors": errors,

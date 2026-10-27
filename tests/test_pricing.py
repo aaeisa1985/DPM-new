@@ -360,5 +360,39 @@ def test_eodhd_batch_guardrails_and_daily_sync_cache(test_db: Session, client_en
         hist_row = db.get(PriceHistory, (spy.id, yesterday))
         assert hist_row is not None
         assert hist_row.close == Decimal("101.50")
+
+        # 5. Test TradingView batch scan (ADX stocks) with mocked httpx.post
+        from app.engines.pricing import fetch_tradingview_batch
+
+        def fake_post(url: str, json: dict | None = None, timeout: float = 15.0):
+            return types.SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "totalCount": 2,
+                    "data": [
+                        {"s": "ADX:FAB", "d": ["FAB", 18.94, 1793080800, "AED", "ADX"]},
+                        {"s": "ADX:ALDAR", "d": ["ALDAR", 7.65, 1793080800, "AED", "ADX"]},
+                    ],
+                },
+                text="ok",
+            )
+
+        monkeypatch.setattr(httpx, "post", fake_post)
+        tv_res = fetch_tradingview_batch(["FAB.ADX", "ADX:ALDAR"])
+        assert tv_res["FAB.ADX"] == Decimal("18.9400")
+        assert tv_res["ADX:ALDAR"] == Decimal("7.6500")
+
+        fab_sec = Security(
+            symbol="FAB.ADX",
+            name="First Abu Dhabi Bank",
+            asset_class="equity",
+            currency="AED",
+            price_source="tradingview",
+        )
+        db.add(fab_sec)
+        db.commit()
+        assert get_live_price(db, fab_sec, force=True) == Decimal("18.9400")
+        tv_sync = sync_daily_prices(db, symbols=["FAB.ADX"], force=True)
+        assert tv_sync["fetched_tradingview_count"] == 1
     finally:
         settings.eodhd_api_key = old_key
