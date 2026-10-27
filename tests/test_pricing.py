@@ -255,3 +255,94 @@ def test_pricing_edge_cases_and_subunit_and_yfinance_mock(test_db: Session, clie
         assert get_live_price(db, empty_sec, force=True) == Decimal("600")
     finally:
         settings.data_provider = old_provider
+
+
+def test_eodhd_batch_guardrails_and_daily_sync_cache(test_db: Session, client_env: dict, monkeypatch):
+    import types
+
+    import httpx
+    import pandas as pd
+
+    from app.core.errors import PriceUnavailableError
+    from app.engines.pricing import fetch_eodhd_batch, fetch_yahoo_batch, get_live_price, sync_daily_prices
+    from app.models.entities import Security
+
+    db = test_db
+    spy = client_env["spy"]
+
+    # 1. Guardrail: EODHD must strictly refuse US stocks and Crypto
+    old_key = settings.eodhd_api_key
+    settings.eodhd_api_key = "test-key"
+    try:
+        with pytest.raises(PriceUnavailableError, match="must be fetched via Yahoo Finance"):
+            fetch_eodhd_batch(["AAPL"])
+        with pytest.raises(PriceUnavailableError, match="must be fetched via Yahoo Finance"):
+            fetch_eodhd_batch(["BTC-USD"])
+
+        # 2. Mock httpx.get for valid EODHD regional batch request (single HTTP call for multiple tickers)
+        called_urls: list[str] = []
+
+        def fake_get(url: str, params: dict | None = None, timeout: float = 15.0):
+            called_urls.append(url)
+            return types.SimpleNamespace(
+                status_code=200,
+                json=lambda: [
+                    {"code": "COMI.EGX", "close": 82.50},
+                    {"code": "EFID.EGX", "close": 29.10},
+                ],
+                text="ok",
+            )
+
+        monkeypatch.setattr(httpx, "get", fake_get)
+        eod_res = fetch_eodhd_batch(["COMI.EGX", "EFID.EGX"])
+        assert len(called_urls) == 1
+        assert eod_res["COMI.EGX"] == Decimal("82.50")
+        assert eod_res["EFID.EGX"] == Decimal("29.10")
+
+        # 3. Mock yfinance.download for batch sync and verify daily cache hit on second call
+        import sys
+
+        fake_yf = types.ModuleType("yfinance")
+        download_calls = []
+
+        def fake_download(tickers, **kwargs):
+            download_calls.append(tickers)
+            return pd.DataFrame({t: [100.0, 105.25] for t in tickers})
+
+        fake_yf.download = fake_download  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "yfinance", fake_yf)
+
+        spy.price_source = "yahoo"
+        gulf_sec = Security(
+            symbol="COMI.EGX",
+            name="CIB Egypt",
+            asset_class="equity",
+            currency="EGP",
+            price_source="eodhd",
+        )
+        db.add(gulf_sec)
+        db.commit()
+
+        # First sync: fetches from providers and populates daily price library
+        res1 = sync_daily_prices(db, symbols=["SPY", "COMI.EGX"], force=True)
+        db.commit()
+        assert res1["fetched_yahoo_count"] == 1
+        assert res1["fetched_eodhd_count"] == 1
+        assert res1["from_cache_count"] == 0
+
+        # Second sync on same day (force=False): 100% served from local daily price library!
+        res2 = sync_daily_prices(db, symbols=["SPY", "COMI.EGX"], force=False)
+        assert res2["from_cache_count"] == 2
+        assert res2["fetched_yahoo_count"] == 0
+        assert res2["fetched_eodhd_count"] == 0
+        assert len(download_calls) == 1  # No extra network call made!
+
+        # Also test single-ticker fetch_yahoo_batch
+        single_res = fetch_yahoo_batch(["SPY"])
+        assert single_res["SPY"] == Decimal("105.2500")
+
+        # And get_live_price for eodhd security with force=True
+        live_eod = get_live_price(db, gulf_sec, force=True)
+        assert live_eod == Decimal("82.50")
+    finally:
+        settings.eodhd_api_key = old_key

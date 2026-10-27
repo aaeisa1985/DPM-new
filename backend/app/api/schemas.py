@@ -67,7 +67,7 @@ class SecurityCreate(BaseModel):
     yahoo_ticker: str | None = None
     asset_class: str = "equity"
     currency: str = "USD"
-    price_source: Literal["manual", "yahoo", "openbb"] = "manual"
+    price_source: Literal["manual", "yahoo", "eodhd", "openbb"] = "manual"
     price_unit: Literal["share", "subunit"] = "share"
     divisor: Decimal = Decimal("1")
     settlement_days: int = 2

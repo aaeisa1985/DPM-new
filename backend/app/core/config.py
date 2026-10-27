@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     default_settlement_days: int = 2
     backup_dir: str = "./data/backups"
     data_provider: str = "yahoo"
+    eodhd_api_key: str = ""
     optimizer_enabled: bool = False
     carry_forward_max: int = 5
     allowed_hosts: str = "127.0.0.1,localhost,testserver"

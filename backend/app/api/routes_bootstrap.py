@@ -32,10 +32,10 @@ from app.api.serializers import (
 from app.core.audit import write_audit
 from app.core.db import get_db
 from app.core.errors import DpmError, NotFoundError
-from app.core.money import s_cash
+from app.core.money import s_cash, s_price
 from app.engines.accounting import build_book
-from app.engines.pricing import record_fx, record_manual_price, value_positions
-from app.models.entities import Account, Client, Mandate, MandateVersion, Security
+from app.engines.pricing import record_fx, record_manual_price, sync_daily_prices, value_positions
+from app.models.entities import Account, Client, Mandate, MandateVersion, PriceHistory, Security
 from app.services.ledger import create_dividend, create_flow, resolve_security
 
 router = APIRouter(tags=["bootstrap"])
@@ -377,3 +377,53 @@ def add_manual_price(payload: PriceCreate, db: Session = Depends(get_db)) -> dic
         "close": str(price_row.close),
         "source": price_row.source,
     }
+
+
+@router.post("/prices/sync")
+def sync_prices_endpoint(
+    symbols: list[str] | None = Query(None, description="Optional list of symbols to sync"),
+    force: bool = Query(False, description="Force refresh even if cached today"),
+    as_of: date | None = Query(None, description="Target date (default today)"),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    result = sync_daily_prices(db, symbols=symbols, force=force, on_date=as_of)
+    write_audit(
+        db,
+        entity_type="price_library",
+        entity_id=result["date"],
+        action="sync",
+        payload={
+            "from_cache_count": result["from_cache_count"],
+            "fetched_yahoo_count": result["fetched_yahoo_count"],
+            "fetched_eodhd_count": result["fetched_eodhd_count"],
+        },
+    )
+    db.commit()
+    return result
+
+
+@router.get("/prices/daily")
+def get_daily_price_library(
+    as_of: date | None = Query(None, description="Date to inspect (default today)"),
+    db: Session = Depends(get_db),
+) -> dict[str, Any]:
+    target = as_of or date.today()
+    rows = db.execute(
+        select(PriceHistory, Security)
+        .join(Security, Security.id == PriceHistory.security_id)
+        .where(PriceHistory.price_date == target)
+        .order_by(Security.symbol)
+    ).all()
+    items = [
+        {
+            "symbol": sec.symbol,
+            "name": sec.name,
+            "currency": sec.currency,
+            "close": s_price(ph.close),
+            "source": ph.source,
+            "price_date": ph.price_date.isoformat(),
+            "fetched_at": ph.fetched_at.isoformat(),
+        }
+        for ph, sec in rows
+    ]
+    return {"date": target.isoformat(), "count": len(items), "prices": items}
